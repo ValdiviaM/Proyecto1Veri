@@ -1,8 +1,9 @@
 # Testplan
 
 ## Casos de uso común
-- Aserciones para APB
-- Aserciones para MD
+- Interfaces de autocomprobación con aserciones embebidas:
+  -  Detectar automáticamente errores en el protocolo APB
+  - Detectar automáticamente errores en el protocolo custom MD
   
 ### Aleatorizando:
 - Eventos Alineamiento
