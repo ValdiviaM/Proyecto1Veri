@@ -13,6 +13,7 @@
 - Eventos de clear
 - Tamaño de control
 - Configuración de registros
+- Profundidad de la FIFO
   
 
 ## Casos de esquina:
