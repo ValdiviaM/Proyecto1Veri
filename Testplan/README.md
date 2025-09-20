@@ -1,6 +1,7 @@
 # Testplan
 
 ## Casos de uso común
+- Aserciones para los protocolos
 ### Aleatorizando:
 - Eventos Alineamiento
 - Eventos de Reset
@@ -12,6 +13,7 @@
 - Eventos de clear
 - Tamaño de control
 - Configuración de registros
+  
 
 ## Casos de esquina:
 - Datos mal alineados
