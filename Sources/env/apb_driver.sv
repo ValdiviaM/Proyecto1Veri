@@ -4,7 +4,7 @@
 
 class apb_driver;
   virtual apb_if.master apb_vif;
-
+  pkt2 input_pkt;
   function new(virtual apb_if.master apb_vif);
     this.apb_vif = apb_vif;
   endfunction
@@ -13,7 +13,7 @@ class apb_driver;
     p.display("[APB] Driving: ");
 
     // APB transaction
-    apb_vif.psel    <= 1'b1;
+    apb_vif.input_pkt.psel    <= 1'b1;
     apb_vif.paddr   <= p.addr;
     apb_vif.pwrite  <= p.write_en;
     apb_vif.pwdata  <= p.wdata;
@@ -22,9 +22,8 @@ class apb_driver;
     apb_vif.penable <= 1'b1;
 
     // Wait for ready
-    wait(apb_vif.pready);
-    if (!p.write_en)
-      p.rdata = apb_vif.prdata;
+    wait (apb_vif.pready);
+    if (!p.write_en) p.rdata = apb_vif.prdata;
 
     // Return to idle
     apb_vif.psel    <= 1'b0;

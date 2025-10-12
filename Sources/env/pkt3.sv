@@ -12,7 +12,7 @@ class pkt3;
 
   // APB interface (register transactions)
   rand bit [15:0] addr;
-  rand bit [31:0] wdata;
+  rcorreand bit [31:0] wdata;
   bit [31:0] rdata;
   rand bit write_en;
 
