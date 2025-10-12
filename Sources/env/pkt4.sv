@@ -119,3 +119,5 @@ function void set_aligment(bit [2:0] new_size, bit [1:0] new_offset);
 endfunction
 
 endclass
+
+
