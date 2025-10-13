@@ -1,19 +1,14 @@
-  class pkt6;
-    
-  
-  // Datos de entrada (RX)
-  rand bit [31:0] rx_data;
-  rand bit [1:0]  rx_offset;
-  rand bit [2:0]  rx_size;
-  bit             rx_valid;
-  bit             rx_ready;
-  bit             rx_error;
-  
-  // Datos de salida (TX)
-  bit [31:0] tx_data;
-  bit [1:0]  tx_offset;
-  bit [2:0]  tx_size;
-  bit        tx_valid;
-  bit        tx_ready;
+class pkt6;
+  int id;                    // identificador único del paquete
+  bit [31:0] data[];         // datos esperados de salida
+  bit [2:0] size[];          // tamaño esperado de cada word
+  bit [1:0] offset[];        // offset esperado de cada word
 
-  endclass
+  // Constructor
+  function new();
+    id     = 0;
+    data   = new[0];
+    size   = new[0];
+    offset = new[0];
+  endfunction
+endclass
