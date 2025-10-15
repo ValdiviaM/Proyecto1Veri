@@ -88,10 +88,7 @@ class Scoreboard;
     $display("[SCOREBOARD] Created for test: %s", test_name);
   endfunction
   
-  // ========================================================================
   // Reset del Modelo de Referencia
-  // ========================================================================
-  
   function void reset_reference_model();
     ref_ctrl_size = 1;
     ref_ctrl_offset = 0;
@@ -132,10 +129,7 @@ class Scoreboard;
     alignment_count = 0;
   endfunction
   
-  // ========================================================================
-  // Task Principal - Run
-  // ========================================================================
-  
+  // Task Principal - Run  
   task run();
     if (verbose)
       $display("[SCOREBOARD] Started at %0t", $time);
@@ -159,10 +153,7 @@ class Scoreboard;
     join_none
   endtask
   
-  // ========================================================================
-  // Recibir Tests Esperados del Generator
-  // ========================================================================
-  
+  // Recibir Tests Esperados del Generator  
   task receive_expected_tests();
     pkt1 test;
     
@@ -183,10 +174,7 @@ class Scoreboard;
     end
   endtask
   
-  // ========================================================================
-  // Recibir Observaciones de los Monitors
-  // ========================================================================
-  
+  // Recibir Observaciones de los Monitors  
   task receive_observations();
     pkt3 obs;
     
@@ -246,10 +234,7 @@ class Scoreboard;
     end
   endtask
   
-  // ========================================================================
-  // Actualizar Modelo de Referencia desde Test
-  // ========================================================================
-  
+  // Actualizar Modelo de Referencia desde Test  
   function void update_reference_from_test(pkt1 test);
     case (test.test_type)
       pkt1::TEST_RESET: begin
@@ -271,9 +256,7 @@ class Scoreboard;
     endcase
   endfunction
   
-  // ========================================================================
   // Actualizar Modelo de Referencia desde Observación
-  // ========================================================================
   
   function void update_reference_from_observation(pkt3 obs);
     case (obs.obs_type)
@@ -302,354 +285,8 @@ class Scoreboard;
     endcase
   endfunction
   
-  // ========================================================================
-  // Actualizar Registros del Modelo de Referencia
-  // ========================================================================
   
-  function void update_reference_registers(pkt3 obs);
-    bit [15:0] addr = obs.apb_addr & 16'hFFFC;
-    
-    case (addr)
-      16'h0000: begin  // CTRL
-        ref_ctrl_size = obs.apb_wdata[2:0];
-        ref_ctrl_offset = obs.apb_wdata[9:8];
-        
-        // Si CLR bit está set
-        if (obs.apb_wdata[16]) begin
-          ref_status_cnt_drop = 0;
-        end
-        
-        if (verbose)
-          $display("[SCOREBOARD] Updated CTRL: SIZE=%0d OFFSET=%0d",
-                   ref_ctrl_size, ref_ctrl_offset);
-      end
-      
-      16'h00F0: begin  // IRQEN
-        ref_irqen = obs.apb_wdata[4:0];
-        
-        if (verbose)
-          $display("[SCOREBOARD] Updated IRQEN: 0x%02h", ref_irqen);
-      end
-      
-      16'h00F4: begin  // IRQ (W1C)
-        // Clear bits where 1 is written
-        ref_irq_flags &= ~obs.apb_wdata[4:0];
-        
-        if (verbose)
-          $display("[SCOREBOARD] Cleared IRQ flags: 0x%02h", obs.apb_wdata[4:0]);
-      end
-    endcase
-    
-    // Actualizar IRQ output
-    ref_irq_out = |(ref_irq_flags & ref_irqen);
-  endfunction
-  
-  // ========================================================================
-  // Procesar MD RX en el Modelo
-  // ========================================================================
-  
-  function void process_md_rx_in_model(pkt3 obs);
-    // Verificar si es legal
-    if (!obs.is_md_legal()) begin
-      // Transferencia ilegal - incrementar contador
-      if (ref_status_cnt_drop < 255) begin
-        ref_status_cnt_drop++;
-        
-        if (ref_status_cnt_drop == 255) begin
-          // Trigger IRQ_MAX_DROP
-          ref_irq_flags[4] = 1;
-          ref_irq_out = |(ref_irq_flags & ref_irqen);
-        end
-      end
-      
-      if (verbose)
-        $display("[SCOREBOARD] Illegal MD RX, cnt_drop=%0d", ref_status_cnt_drop);
-      
-      return;
-    end
-    
-    // Transferencia legal - agregar a FIFO RX
-    if (ref_rx_fifo.size() < FIFO_DEPTH) begin
-      ref_rx_fifo.push_back(obs.md_data);
-      ref_status_rx_lvl = ref_rx_fifo.size();
-      
-      // Check FIFO full
-      if (ref_rx_fifo.size() == FIFO_DEPTH) begin
-        ref_irq_flags[1] = 1;  // RX_FIFO_FULL
-        ref_irq_out = |(ref_irq_flags & ref_irqen);
-      end
-      
-      if (verbose)
-        $display("[SCOREBOARD] Added to RX FIFO, level=%0d", ref_status_rx_lvl);
-    end else begin
-      $warning("[SCOREBOARD] RX FIFO overflow in model!");
-    end
-  endfunction
-  
-  // ========================================================================
-  // Procesar MD TX en el Modelo
-  // ========================================================================
-  
-  function void process_md_tx_in_model(pkt3 obs);
-    // Sacar dato del TX FIFO
-    if (ref_tx_fifo.size() > 0) begin
-      bit [31:0] expected_data = ref_tx_fifo.pop_front();
-      ref_status_tx_lvl = ref_tx_fifo.size();
-      
-      // Check FIFO empty
-      if (ref_tx_fifo.size() == 0) begin
-        ref_irq_flags[2] = 1;  // TX_FIFO_EMPTY
-        ref_irq_out = |(ref_irq_flags & ref_irqen);
-      end
-      
-      // Verificar que el dato sea correcto
-      if (obs.md_data !== expected_data) begin
-        $error("[SCOREBOARD] TX data mismatch: expected=0x%08h, actual=0x%08h",
-               expected_data, obs.md_data);
-        total_errors++;
-        reporter.log_error("ERROR", "DATA", "TX data mismatch", "Scoreboard",
-                          $sformatf("0x%08h", expected_data),
-                          $sformatf("0x%08h", obs.md_data));
-      end
-      
-      if (verbose)
-        $display("[SCOREBOARD] TX FIFO pop, level=%0d", ref_status_tx_lvl);
-    end
-  endfunction
-  
-  // ========================================================================
-  // Procesar Alineamiento en el Modelo
-  // ========================================================================
-  
-  function void process_alignment();
-    // Tomar datos del RX FIFO y alinearlos al TX FIFO
-    while (ref_rx_fifo.size() > 0 && ref_tx_fifo.size() < FIFO_DEPTH) begin
-      bit [31:0] rx_data = ref_rx_fifo.pop_front();
-      bit [31:0] tx_data;
-      
-      // Aquí implementarías la lógica de alineamiento según SIZE y OFFSET
-      tx_data = align_data(rx_data, ref_ctrl_size, ref_ctrl_offset);
-      
-      ref_tx_fifo.push_back(tx_data);
-      
-      ref_status_rx_lvl = ref_rx_fifo.size();
-      ref_status_tx_lvl = ref_tx_fifo.size();
-      
-      // Check RX FIFO empty
-      if (ref_rx_fifo.size() == 0) begin
-        ref_irq_flags[0] = 1;  // RX_FIFO_EMPTY
-      end
-      
-      // Check TX FIFO full
-      if (ref_tx_fifo.size() == FIFO_DEPTH) begin
-        ref_irq_flags[3] = 1;  // TX_FIFO_FULL
-      end
-      
-      ref_irq_out = |(ref_irq_flags & ref_irqen);
-    end
-  endfunction
-  
-  // ========================================================================
-  // Función de Alineamiento (Modelo Golden)
-  // ========================================================================
-  
-  function bit [31:0] align_data(
-    bit [31:0] data,
-    bit [2:0] size,
-    bit [1:0] offset
-  );
-    bit [31:0] aligned_data;
-    
-    // Implementación simplificada del alineamiento
-    // En un modelo real, esto debería replicar exactamente
-    // el comportamiento del DUT
-    
-    case (size)
-      1: begin  // 1 byte
-        case (offset)
-          0: aligned_data = {24'h0, data[7:0]};
-          1: aligned_data = {16'h0, data[7:0], 8'h0};
-          2: aligned_data = {8'h0, data[7:0], 16'h0};
-          3: aligned_data = {data[7:0], 24'h0};
-        endcase
-      end
-      
-      2: begin  // 2 bytes
-        case (offset)
-          0: aligned_data = {16'h0, data[15:0]};
-          2: aligned_data = {data[15:0], 16'h0};
-          default: aligned_data = data;
-        endcase
-      end
-      
-      4: begin  // 4 bytes
-        aligned_data = data;
-      end
-      
-      default: aligned_data = data;
-    endcase
-    
-    return aligned_data;
-  endfunction
-  
-  // ========================================================================
-  // Verificar Observación
-  // ========================================================================
-  
-  function void check_observation(pkt3 obs);
-    pkt5 check_pkt;
-    
-    case (obs.obs_type)
-      pkt3::OBS_APB: begin
-        check_pkt = create_check_packet_for_apb(obs);
-      end
-      
-      pkt3::OBS_MD_TX: begin
-        check_pkt = create_check_packet_for_tx(obs);
-      end
-      
-      pkt3::OBS_IRQ: begin
-        check_pkt = create_check_packet_for_irq(obs);
-      end
-      
-      default: return;
-    endcase
-    
-    // Enviar al checker si se creó un paquete
-    if (check_pkt != null) begin
-      scb2chk_mbx.put(check_pkt);
-      
-      if (verbose)
-        check_pkt.display("[SCOREBOARD] Sent to checker: ");
-    end
-  endfunction
-  
-  // ========================================================================
-  // Crear Paquetes de Verificación
-  // ========================================================================
-  
-  function pkt5 create_check_packet_for_apb(pkt3 obs);
-    pkt5 check_pkt = new();
-    
-    if (obs.apb_write) begin
-      // Verificar que el write fue exitoso
-      check_pkt.check_type = pkt5::CHK_REGISTER;
-      check_pkt.set_expected_register_state(
-        ref_ctrl_size, ref_ctrl_offset, ref_status_cnt_drop,
-        ref_status_rx_lvl, ref_status_tx_lvl,
-        ref_irqen, ref_irq_flags
-      );
-    end else begin
-      // Verificar que el read retornó valores correctos
-      check_pkt.check_type = pkt5::CHK_REGISTER;
-      // Aquí compararíamos obs.apb_rdata con el modelo
-    end
-    
-    return check_pkt;
-  endfunction
-  
-  function pkt5 create_check_packet_for_tx(pkt3 obs);
-    pkt5 check_pkt = new();
-    
-    check_pkt.check_type = pkt5::CHK_ALIGNMENT;
-    
-    // El dato TX debe estar alineado según la configuración
-    bit [31:0] expected_data = align_data(
-      ref_tx_fifo.size() > 0 ? ref_tx_fifo[0] : 0,
-      ref_ctrl_size,
-      ref_ctrl_offset
-    );
-    
-    check_pkt.set_expected_alignment(
-      expected_data,
-      ref_ctrl_offset,
-      ref_ctrl_size
-    );
-    
-    // Verificar contra lo observado
-    if (obs.md_data !== expected_data) begin
-      total_mismatches++;
-      reporter.log_error("ERROR", "ALIGNMENT", "TX data mismatch", "Scoreboard",
-                        $sformatf("0x%08h", expected_data),
-                        $sformatf("0x%08h", obs.md_data));
-    end else begin
-      total_matches++;
-    end
-    
-    if (obs.md_offset !== ref_ctrl_offset) begin
-      total_mismatches++;
-      reporter.log_alignment_error(ref_ctrl_size, ref_ctrl_offset,
-                                   obs.md_size, obs.md_offset);
-    end else begin
-      total_matches++;
-    end
-    
-    return check_pkt;
-  endfunction
-  
-  function pkt5 create_check_packet_for_irq(pkt3 obs);
-    pkt5 check_pkt = new();
-    
-    check_pkt.check_type = pkt5::CHK_INTERRUPT;
-    check_pkt.set_expected_irq(ref_irq_out, ref_irq_flags);
-    
-    // Verificar IRQ
-    if (obs.irq !== ref_irq_out) begin
-      total_mismatches++;
-      reporter.log_irq_error(ref_irq_flags, obs.irq_status);
-    end else begin
-      total_matches++;
-    end
-    
-    return check_pkt;
-  endfunction
-  
-  // ========================================================================
-  // Procesar y Verificar Continuamente
-  // ========================================================================
-  
-  task process_and_verify();
-    forever begin
-      #10ns;  // Procesar cada 10ns
-      
-      if (enable) begin
-        // Procesar alineamiento en el modelo
-        process_alignment();
-        
-        // Verificar coherencia del modelo
-        verify_model_coherence();
-      end
-    end
-  endtask
-  
-  // ========================================================================
-  // Verificar Coherencia del Modelo
-  // ========================================================================
-  
-  function void verify_model_coherence();
-    // Verificar que los niveles de FIFO sean consistentes
-    if (ref_rx_fifo.size() != ref_status_rx_lvl) begin
-      $warning("[SCOREBOARD] RX FIFO level mismatch in model: fifo=%0d, status=%0d",
-               ref_rx_fifo.size(), ref_status_rx_lvl);
-    end
-    
-    if (ref_tx_fifo.size() != ref_status_tx_lvl) begin
-      $warning("[SCOREBOARD] TX FIFO level mismatch in model: fifo=%0d, status=%0d",
-               ref_tx_fifo.size(), ref_status_tx_lvl);
-    end
-    
-    // Verificar que IRQ out sea consistente con flags y enable
-    bit expected_irq = |(ref_irq_flags & ref_irqen);
-    if (ref_irq_out !== expected_irq) begin
-      $warning("[SCOREBOARD] IRQ out inconsistent: actual=%b, expected=%b",
-               ref_irq_out, expected_irq);
-    end
-  endfunction
-  
-  // ========================================================================
-  // Calcular Métricas de Performance
-  // ========================================================================
-  
+  // Calcular Métricas de Performance  
   function void calculate_performance_metrics();
     // Calcular latencia de alineamiento
     if (observed_md_rx.size() > 0 && observed_md_tx.size() > 0) begin
@@ -753,20 +390,5 @@ class Scoreboard;
     reporter.close_files();
   endfunction
   
-  // ========================================================================
-  // Métodos de Control
-  // ========================================================================
-  
-  function void set_verbose(bit v);
-    verbose = v;
-  endfunction
-  
-  function void set_strict_checking(bit s);
-    strict_checking = s;
-  endfunction
-  
-  function bit get_pass_fail();
-    return (total_errors == 0 && total_mismatches == 0);
-  endfunction
-  
+
 endclass : aligner_scoreboard

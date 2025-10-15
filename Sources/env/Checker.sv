@@ -65,18 +65,116 @@ class checker #(parameter wdth = 16, parameter dpth = 8);
   function bit check_drop_counter(pkt4 pkt);
     bit pass = 1;
     drop_counter_checks++;
-
+    if (!enable_checking) return pass;
+    
+    // Verificar que el contador no exceda 255
+    if (pkt.cnt_drop > 255) begin
+      $error("[CHECKER] Drop counter exceeded maximum: CNT_DROP=%0d", pkt.cnt_drop);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Verificar que cuando está en máximo, el flag esté activo
+    if (pkt.cnt_drop == 255 && !pkt.cnt_drop_max) begin
+      $error("[CHECKER] Drop counter at max but cnt_drop_max flag not set");
+      error_count++;
+      pass = 0;
+    end
+    
+    // Verificar que cuando está en máximo, la interrupción esté activa
+    if (pkt.cnt_drop == 255 && !pkt.irq_status[4]) begin
+      $error("[CHECKER] Drop counter at max but IRQ_MAX_DROP not set");
+      error_count++;
+      pass = 0;
+    end
+    
+    return pass;
     endfunction
 
   function bit check_drop_counter_increment(pkt4 before, pkt4 after, bit illegal_transfer);
+    bit pass = 1;
+    
+    if (!enable_checking) return pass;
+    
+    if (illegal_transfer) begin
+      // Verificar incremento del contador (si no está en máximo)
+      if (before.cnt_drop < 255) begin
+        if (after.cnt_drop !== (before.cnt_drop + 1)) begin
+          $error("[CHECKER] Drop counter not incremented: before=%0d, after=%0d", 
+                 before.cnt_drop, after.cnt_drop);
+          error_count++;
+          pass = 0;
+        end
+      end else begin
+        // Si ya está en máximo, debe mantenerse
+        if (after.cnt_drop !== 255) begin
+          $error("[CHECKER] Drop counter changed from maximum: after=%0d", after.cnt_drop);
+          error_count++;
+          pass = 0;
+        end
+      end
+    end
+    return pass;
 
 endfunction
 
 //Hay que revisar alineamiento
   function bit check_alignment_config(pkt4 pkt);
+    bit pass = 1;
+    alignment_checks++;
+    
+    if (!enable_checking) return pass;
+    
+    // Verificar que SIZE no sea 0
+    if (pkt.size == 0) begin
+      $error("[CHECKER] Illegal SIZE=0 in configuration");
+      error_count++;
+      pass = 0;
+    end
+    
+    // Verificar que la combinación (SIZE, OFFSET) sea legal
+    if (!pkt.is_alignment_legal(pkt.size, pkt.offset)) begin
+      $error("[CHECKER] Illegal alignment configuration: SIZE=%0d, OFFSET=%0d",
+             pkt.size, pkt.offset);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Verificar que OFFSET esté en rango válido
+    int max_offset = (ALGN_DATA_WIDTH / 8) - 1;
+    if (pkt.offset > max_offset) begin
+      $error("[CHECKER] OFFSET out of range: OFFSET=%0d, max=%0d",
+             pkt.offset, max_offset);
+      error_count++;
+      pass = 0;
+    end  
+    return pass; 
 endfunction
 
   function bit check_rx_transfer_legal(pkt4 pkt);
+    bit pass = 1;
+    bit is_legal;
+    
+    if (!enable_checking) return pass;
+    
+    is_legal = pkt.is_rx_transfer_legal();
+    
+    // Si la transferencia es ilegal, debe generar error
+    if (!is_legal && !pkt.rx_error) begin
+      $error("[CHECKER] Illegal RX transfer not flagged as error: rx_offset=%0d, rx_size=%0d",
+             pkt.rx_offset, pkt.rx_size);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Si la transferencia es legal, no debe generar error
+    if (is_legal && pkt.rx_error) begin
+      $error("[CHECKER] Legal RX transfer flagged as error: rx_offset=%0d, rx_size=%0d",
+             pkt.rx_offset, pkt.rx_size);
+      error_count++;
+      pass = 0;
+    end    
+    return pass;  
 endfunction
 
 
@@ -139,8 +237,6 @@ function bit check_irq_sticky(pkt4 pkt, pkt4::irq_type_e irq_type);
   endfunction
 
 
-
-
 //Hay que revisar FIFOs
   function bit check_fifo_levels(pkt4 pkt);
     bit pass = 1;
@@ -197,7 +293,132 @@ function bit check_irq_sticky(pkt4 pkt, pkt4::irq_type_e irq_type);
     end
 endfunction
 
+//Forma de revisar las transacciones
+  function bit check_transaction(pkt4 pkt);
+    bit pass = 1;
+    
+    if (!enable_checking) return pass;
+    
+    transactions_checked++;
+        
+    // Verificaciones individuales
+    if (!check_reset(pkt)) pass = 0;
+    if (!check_drop_counter(pkt)) pass = 0;
+    if (!check_irq_output(pkt)) pass = 0;
+    if (!check_alignment_config(pkt)) pass = 0;
+    if (!check_fifo_levels(pkt)) pass = 0;
+    
+    if (pkt.rx_valid)
+      if (!check_rx_transfer_legal(pkt)) pass = 0;
+    
+    if (pass && verbose_mode)
+      $display("[CHECKER] Transaction %0d check PASSED", pkt.transaction_id);
+    
+    return pass;
+  endfunction
+
+//Comparar paquetes
+  function bit compare_packets(pkt4 expected, pkt4 actual, string context = "");
+    bit pass = 1;
+    
+    if (!enable_checking) return pass;
+    
+    if (verbose_mode)
+      $display("[CHECKER] Comparing packets: %s", context);
+    
+    // Comparar contador de drops
+    if (expected.cnt_drop !== actual.cnt_drop) begin
+      $error("[CHECKER] %s: CNT_DROP mismatch: expected=%0d, actual=%0d",
+             context, expected.cnt_drop, actual.cnt_drop);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Comparar estado de interrupciones
+    if (expected.irq_status !== actual.irq_status) begin
+      $error("[CHECKER] %s: IRQ_STATUS mismatch: expected=0x%02h, actual=0x%02h",
+             context, expected.irq_status, actual.irq_status);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Comparar configuración de alineamiento
+    if (expected.size !== actual.size) begin
+      $error("[CHECKER] %s: SIZE mismatch: expected=%0d, actual=%0d",
+             context, expected.size, actual.size);
+      error_count++;
+      pass = 0;
+    end
+    
+    if (expected.offset !== actual.offset) begin
+      $error("[CHECKER] %s: OFFSET mismatch: expected=%0d, actual=%0d",
+             context, expected.offset, actual.offset);
+      error_count++;
+      pass = 0;
+    end
+    
+    // Comparar niveles de FIFO
+    if (expected.rx_fifo_level !== actual.rx_fifo_level) begin
+      $error("[CHECKER] %s: RX_FIFO_LEVEL mismatch: expected=%0d, actual=%0d",
+             context, expected.rx_fifo_level, actual.rx_fifo_level);
+      error_count++;
+      pass = 0;
+    end
+    
+    if (expected.tx_fifo_level !== actual.tx_fifo_level) begin
+      $error("[CHECKER] %s: TX_FIFO_LEVEL mismatch: expected=%0d, actual=%0d",
+             context, expected.tx_fifo_level, actual.tx_fifo_level);
+      error_count++;
+      pass = 0;
+    end
+    
+    if (pass && verbose_mode)
+      $display("[CHECKER] Packet comparison PASSED: %s", context);
+    
+    return pass;
+  endfunction
+
+
 
 //Reporte resultados
+ function void report(string prefix = "");
+    $display("========================================");
+    $display("%s ALIGNER CHECKER REPORT", prefix);
+    $display("========================================");
+    $display("Transactions checked:    %0d", transactions_checked);
+    $display("Alignment checks:        %0d", alignment_checks);
+    $display("IRQ checks:              %0d", irq_checks);
+    $display("Drop counter checks:     %0d", drop_counter_checks);
+    $display("Reset checks:            %0d", reset_checks);
+    $display("----------------------------------------");
+    $display("Errors found:            %0d", error_count);
+    $display("Warnings:                %0d", warning_count);
+    $display("========================================");
+    
+    if (error_count == 0) begin
+      $display("%s ALL CHECKS PASSED!", prefix);
+    end else begin
+      $display("%s CHECKS FAILED with %0d errors", prefix, error_count);
+    end
+    $display("========================================");
+  endfunction
+
+
+
+
+//Funciones auxiliares del reporte
+  function bit all_checks_passed();
+    return (error_count == 0);
+  endfunction
+  
+  function int get_error_count();
+    return error_count;
+  endfunction
+  
+  function int get_warning_count();
+    return warning_count;
+  endfunction
+
+
 
 endclass
