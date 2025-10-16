@@ -1,3 +1,5 @@
+'include "pkt5.sv"
+'include "pkt6.sv"
 
 class Scoreboard;
   
@@ -17,26 +19,7 @@ class Scoreboard;
   pkt3 all_observations[$];       // Todas las observaciones
   
   
-  // Modelo de Referencia del DUT
-  
-  // Estado de registros
-  bit [2:0]  ref_ctrl_size;
-  bit [1:0]  ref_ctrl_offset;
-  bit [7:0]  ref_status_cnt_drop;
-  bit [3:0]  ref_status_rx_lvl;
-  bit [3:0]  ref_status_tx_lvl;
-  bit [4:0]  ref_irqen;
-  bit [4:0]  ref_irq_flags;
-  bit        ref_irq_out;
-  
-  // FIFOs del modelo de referencia
-  bit [31:0] ref_rx_fifo[$];
-  bit [31:0] ref_tx_fifo[$];
-  int        FIFO_DEPTH = 8;
-  
-  // Estado de alineamiento
-  bit [31:0] ref_alignment_buffer;
-  int        ref_buffer_bytes;
+
   
   // Estadísticas  
   int total_tests_expected;
@@ -64,7 +47,7 @@ class Scoreboard;
   
   // Constructor  
   function new(
-    mailbox #(pkt1) gen2scb,
+    mailbox #(pkt6) gen2scb,
     mailbox #(pkt5) scb2chk,
     string test_name = "aligner_test"
   );
@@ -76,63 +59,16 @@ class Scoreboard;
     this.enable = 1;
 
     
-    // Inicializar modelo de referencia
-    reset_reference_model();
-    
-    // Inicializar estadísticas
-    reset_statistics();
-    
+          
     // Crear reporter CSV
     this.reporter = new(test_name, "./csv_results");
     
     $display("[SCOREBOARD] Created for test: %s", test_name);
   endfunction
   
-  // Reset del Modelo de Referencia
-  function void reset_reference_model();
-    ref_ctrl_size = 1;
-    ref_ctrl_offset = 0;
-    ref_status_cnt_drop = 0;
-    ref_status_rx_lvl = 0;
-    ref_status_tx_lvl = 0;
-    ref_irqen = 0;
-    ref_irq_flags = 0;
-    ref_irq_out = 0;
-    
-    ref_rx_fifo.delete();
-    ref_tx_fifo.delete();
-    
-    ref_alignment_buffer = 0;
-    ref_buffer_bytes = 0;
-    
-    if (verbose)
-      $display("[SCOREBOARD] Reference model reset");
-  endfunction
-  
-  function void reset_statistics();
-    total_tests_expected = 0;
-    total_tests_completed = 0;
-    total_apb_writes = 0;
-    total_apb_reads = 0;
-    total_md_rx_trans = 0;
-    total_md_tx_trans = 0;
-    total_irq_events = 0;
-    total_illegal_trans = 0;
-    total_errors = 0;
-    total_warnings = 0;
-    total_matches = 0;
-    total_mismatches = 0;
-    
-    min_alignment_latency = 1e9;
-    max_alignment_latency = 0;
-    total_alignment_latency = 0;
-    alignment_count = 0;
-  endfunction
-  
+
   // Task Principal - Run  
   task run();
-    if (verbose)
-      $display("[SCOREBOARD] Started at %0t", $time);
     
     // Abrir archivos CSV
     if (!reporter.open_files()) begin
@@ -162,13 +98,7 @@ class Scoreboard;
       
       total_tests_expected++;
       expected_tests.push_back(test.copy());
-      
-      if (verbose) begin
-        $display("[SCOREBOARD] Received expected test #%0d at %0t",
-                 test.transaction_id, $time);
-        test.display("  ");
-      end
-      
+
       // Actualizar modelo de referencia si es necesario
       update_reference_from_test(test);
     end
@@ -391,4 +321,4 @@ class Scoreboard;
   endfunction
   
 
-endclass : aligner_scoreboard
+endclass

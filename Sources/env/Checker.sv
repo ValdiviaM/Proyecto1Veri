@@ -1,4 +1,5 @@
 'include "pkt4.sv"
+'include "pkt5.sv"
 
 
 class checker #(parameter wdth = 16, parameter dpth = 8);
@@ -311,8 +312,6 @@ endfunction
     if (pkt.rx_valid)
       if (!check_rx_transfer_legal(pkt)) pass = 0;
     
-    if (pass && verbose_mode)
-      $display("[CHECKER] Transaction %0d check PASSED", pkt.transaction_id);
     
     return pass;
   endfunction
@@ -323,8 +322,6 @@ endfunction
     
     if (!enable_checking) return pass;
     
-    if (verbose_mode)
-      $display("[CHECKER] Comparing packets: %s", context);
     
     // Comparar contador de drops
     if (expected.cnt_drop !== actual.cnt_drop) begin
