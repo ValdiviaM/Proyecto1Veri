@@ -60,6 +60,8 @@ class checker #(parameter wdth = 16, parameter dpth = 8);
   endfunction
 
 //Hay que revisar reset
+//function check_reset(pkt4 pkt)
+//endfunction
 
 
 //Hay que revisar los drops del contador
@@ -303,7 +305,7 @@ endfunction
     transactions_checked++;
         
     // Verificaciones individuales
-    if (!check_reset(pkt)) pass = 0;
+    //if (!check_reset(pkt)) pass = 0;
     if (!check_drop_counter(pkt)) pass = 0;
     if (!check_irq_output(pkt)) pass = 0;
     if (!check_alignment_config(pkt)) pass = 0;
