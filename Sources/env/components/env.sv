@@ -2,6 +2,7 @@
   class environment;
     virtual apb_if.Transactor apb_vif;
     virtual md_if.Transactor  md_vif;
+    virtual md_if_monitor.Monitor md_monitor_vif;
     test_sync sync;
     apb_driver  apb_drv;
     md_driver   md_drv;
@@ -34,7 +35,7 @@
       apb_drv = new(apb_vif, apb_driver_mbx, apb_response_mbx);
       md_drv  = new(md_vif,  md_driver_mbx);
       apb_mon = new(apb_vif, actual_mbx, shared_dut_state);
-      md_mon  = new(md_vif,  actual_mbx, shared_dut_state);
+      md_mon  = new(md_monitor_vif,  actual_mbx, shared_dut_state);
       gen = new(apb_driver_mbx, apb_response_mbx, md_driver_mbx, scoreboard_mbx);
       chkr    = new(32, 8);
       scb = new(scoreboard_mbx, actual_mbx, sync);
