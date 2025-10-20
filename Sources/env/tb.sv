@@ -1,63 +1,80 @@
-`include "cfs_aligner.v"
-`include "apb_if.sv"
-`include "md_if.sv"
-`include "random_md_test.sv" // Include the specific test we want to run
+`include "interfaces/apb_if.sv"
+`include "interfaces/md_if.sv"
 
-module testbench;
+`include "packets/test_sync.sv"
+`include "packets/pkt1.sv"
+`include "packets/pkt_base.sv"
+`include "packets/apb_pkt.sv"
+`include "packets/md_pkt.sv"
+`include "packets/pkt4.sv"
+`include "packets/pkt6.sv"
 
-  // Clock and Reset
-  bit clk;
-  // The reset signal is now inside the interface for better encapsulation
-  // bit reset_n; 
+`include "transactors/apb_driver.sv"
+`include "transactors/md_driver.sv"
+`include "transactors/apb_monitor.sv"
+`include "transactors/md_monitor.sv"
 
-  // Instantiate Interfaces
-  apb_if apb_bus();
-  md_if  md_bus();
+`include "components/Generator.sv"
+`include "components/Scoreboard.sv"
+`include "components/Checker.sv"
+`include "components/env.sv"
 
-  // Instantiate DUT
-  cfs_aligner #(
-    .ALGN_DATA_WIDTH(32),
-    .FIFO_DEPTH(8)
-  ) dut (
-    .clk(clk),
-    .reset_n(apb_bus.reset_n), // Connect reset from one of the interfaces
-    // Connect APB and MD interfaces
-    .paddr(apb_bus.paddr),
-    .pwrite(apb_bus.pwrite),
-    // ... connect all other DUT ports to the interfaces
-  );
-  
-  // Connect clock to interfaces
-  assign apb_bus.pclk = clk;
-  assign md_bus.clk = clk;
-  // Tie resets together
-  assign md_bus.reset_n = apb_bus.reset_n;
+`include "tests/base_test.sv"
+`include "tests/random_md_test.sv"
 
-  // Instantiate the Test Class
-  random_md_test test;
+  module testbench;
+    bit clk;
+    wire irq;
 
-  // Clock Generation
-  initial begin
-    clk = 0;
-    forever #5ns clk = ~clk; // 10ns period = 100MHz clock
-  end
+    apb_if apb_bus();
+    md_if  md_bus();
 
-  // Main Test Execution
-  initial begin
-    $display("==== [TB] Starting Testbench ====");
+    // --- FIX: All declarations must come before logic/instantiations ---
+    random_md_test test;
+
+    // The DUT instance uses the 'cfs_aligner' from your design.sv file
+    cfs_aligner dut (
+      .clk(clk),
+      .reset_n(apb_bus.reset_n),
+      .paddr(apb_bus.paddr),
+      .pwrite(apb_bus.pwrite),
+      .psel(apb_bus.psel),
+      .penable(apb_bus.penable),
+      .pwdata(apb_bus.pwdata),
+      .pready(apb_bus.pready),
+      .prdata(apb_bus.prdata),
+      .pslverr(apb_bus.pslverr),
+      .md_rx_valid(md_bus.md_rx_valid),
+      .md_rx_data(md_bus.md_rx_data),
+      .md_rx_offset(md_bus.md_rx_offset),
+      .md_rx_size(md_bus.md_rx_size),
+      .md_rx_ready(md_bus.md_rx_ready),
+      .md_rx_err(md_bus.md_rx_err),
+      .md_tx_valid(md_bus.md_tx_valid),
+      .md_tx_data(md_bus.md_tx_data),
+      .md_tx_offset(md_bus.md_tx_offset),
+      .md_tx_size(md_bus.md_tx_size),
+      .md_tx_ready(md_bus.md_tx_ready),
+      .md_tx_err(md_bus.md_tx_err),
+      .irq(irq)
+    );
+
+    assign apb_bus.pclk = clk;
+    assign md_bus.clk = clk;
+    assign md_bus.reset_n = apb_bus.reset_n;
+
+    initial begin
+      clk = 0;
+      forever #5ns clk = ~clk;
+    end
+
+    initial begin
+      $display("==== [TB] Starting Testbench ====");
+      test = new(apb_bus.Transactor, md_bus.Transactor);
+      test.run();
     
-    // 1. Instantiate the test class, passing the virtual interfaces to it
-    test = new(apb_bus.Transactor, md_bus.Transactor);
-    
-    // 2. Start the test. This will call the run() task inside our random_md_test
-    test.run();
+      $display("==== [TB] Test Finished ====");
+      $finish;
+    end
 
-    // 3. Give the simulation some time to drain final transactions
-    #1000ns;
-
-    // 4. Finish simulation
-    $display("==== [TB] Test Finished ====");
-    $finish;
-  end
-
-endmodule
+  endmodule

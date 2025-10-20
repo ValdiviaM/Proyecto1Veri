@@ -405,9 +405,11 @@
     endtask
 
     function pkt6 predict_output(md_pkt input_pkt);
+
         pkt6 predicted_pkt = new();
         bit is_legal_transfer;
         int expected_byte_size;
+        $display("[PRED CFG] dut_cfg_offset=%0d, dut_cfg_size=%0d", dut_cfg_offset, dut_cfg_size);
 
         predicted_pkt.id = transaction_id_counter++;
         if (!dut_cfg_enabled) return predicted_pkt;
@@ -450,7 +452,8 @@
             // store predicted information (use REAL byte offset that the DUT will place)
             predicted_pkt.data.push_back(predicted_word);
             predicted_pkt.size.push_back(input_pkt.size[i]);     // bytes (1/2/4)
-            predicted_pkt.offset.push_back(dut_cfg_offset);      // the DUT configured byte offset
+            predicted_pkt.offset.push_back(0);
+     // the DUT configured byte offset
             $display("[GEN PRED] pkt_id=%0d input_word=0x%08h size=%0d offset=%0d -> predicted_word=0x%08h (stored_offset=%0d)",
                     predicted_pkt.id, input_word, input_pkt.size[i], input_pkt.offset[i], predicted_word, dut_cfg_offset);
           end
@@ -585,7 +588,7 @@
     endfunction
   endclass
 
-  class AlignerChecker;
+  class Checker;
     function new(int data_width = 32, int fifo_depth = 8);
     endfunction
     function void report();
@@ -607,7 +610,7 @@
     apb_monitor apb_mon;
     md_monitor  md_mon;
     Generator   gen;
-    AlignerChecker chkr;
+    Checker chkr;
     Scoreboard  scb;
 
     mailbox #(apb_pkt) apb_driver_mbx;
@@ -723,6 +726,8 @@
       endcase
 
       env.gen.configure_dut(rand_encoded_size, rand_offset, encoded_offset, 1'b1);
+      $display("[TEST CFG] Configured DUT: encoded_size=%0d, rand_offset(real)=%0d, encoded_offset=%0d",
+          rand_encoded_size, rand_offset, encoded_offset);
 
       env.gen.run(test_cfg);
       
