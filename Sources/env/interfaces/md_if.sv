@@ -22,7 +22,7 @@
       output md_rx_valid, md_rx_data, md_rx_offset, md_rx_size;
       input  md_rx_ready, md_rx_err;
       input  md_tx_valid, md_tx_data, md_tx_offset, md_tx_size;
-      output md_tx_ready, md_tx_err;
+      output  md_tx_ready, md_tx_err;
     endclocking;
 
     modport DUT (
