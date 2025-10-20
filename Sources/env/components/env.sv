@@ -20,7 +20,7 @@
 
     pkt4 shared_dut_state;
 
-    function new(virtual apb_if.Transactor apb_vif, virtual md_if.Transactor md_vif);
+    function new(virtual apb_if.Transactor apb_vif, virtual apb_if.Monitor apb_monitor_vif, virtual md_if.Transactor md_vif, virtual md_if.Monitor md_monitor_vif);
       this.apb_vif = apb_vif;
       this.md_vif  = md_vif;
 
@@ -34,7 +34,7 @@
 
       apb_drv = new(apb_vif, apb_driver_mbx, apb_response_mbx);
       md_drv  = new(md_vif,  md_driver_mbx);
-      apb_mon = new(apb_vif, actual_mbx, shared_dut_state);
+      apb_mon = new(apb_monitor_vif, actual_mbx, shared_dut_state);
       md_mon  = new(md_monitor_vif,  actual_mbx, shared_dut_state);
       gen = new(apb_driver_mbx, apb_response_mbx, md_driver_mbx, scoreboard_mbx);
       chkr    = new(32, 8);
