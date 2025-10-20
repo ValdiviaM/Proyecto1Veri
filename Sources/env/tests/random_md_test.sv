@@ -15,8 +15,11 @@
       (rand_encoded_size == 2) -> (rand_offset == 0);      // For 4-byte size, offset must be 0
     }
 
-    function new(virtual apb_if.Transactor apb_vif, virtual md_if.Transactor md_vif);
-      super.new(apb_vif, md_vif);
+    function new(virtual apb_if.Transactor apb_vif,
+                 virtual apb_if.Monitor    apb_monitor_vif, // <<< ADD
+                 virtual md_if.Transactor  md_vif,
+                 virtual md_if.Monitor     md_monitor_vif); // <<< ADD     
+    super.new(apb_vif, apb_monitor_vif, md_vif, md_monitor_vif);
     endfunction
 
     task run();

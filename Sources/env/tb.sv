@@ -71,7 +71,10 @@
 
     initial begin
       $display("==== [TB] Starting Testbench ====");
-      test = new(apb_bus.Transactor, md_bus.Transactor);
+      test = new(apb_bus.Transactor, // For the APB Driver
+                  apb_bus.Monitor,    // For the APB Monitor
+                  md_bus.Transactor,  // For the MD Driver
+                  md_bus.Monitor);    // For the MD Monitor
       test.run();
     
       $display("==== [TB] Test Finished ====");
