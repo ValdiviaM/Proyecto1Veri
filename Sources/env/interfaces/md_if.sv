@@ -24,6 +24,14 @@
       input  md_tx_valid, md_tx_data, md_tx_offset, md_tx_size;
       output  md_tx_ready, md_tx_err;
     endclocking;
+    
+    clocking monitor_cb @(posedge clk);
+      default input #1step output #0;
+      input md_rx_valid, md_rx_data, md_rx_offset, md_rx_size;
+      input md_rx_ready, md_rx_err;
+      input md_tx_valid, md_tx_data, md_tx_offset, md_tx_size;
+      input md_tx_ready, md_tx_err; // <<< Now an input for the monitor
+    endclocking;
 
     modport DUT (
       input  clk, reset_n, md_rx_valid, md_rx_data, md_rx_offset, md_rx_size, md_tx_ready, md_tx_err,
@@ -34,5 +42,11 @@
       clocking transactor_cb,
       input clk,
       output reset_n
+    );
+
+    modport Monitor (
+      clocking monitor_cb,
+      input clk,
+      input reset_n
     );
   endinterface

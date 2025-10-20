@@ -1,12 +1,11 @@
 class md_monitor;
-    virtual md_if.Transactor md_vif;
+    virtual md_if.Monitor md_vif;
     mailbox #(pkt4) actual_mbx;
     // Note: The shared dut_state object is not used by this monitor to create packets for the scoreboard.
     // It could be used to model the DUT's internal state if needed, but the scoreboard needs fresh packets.
     pkt4 dut_state;
 
-    function new(virtual md_if.Transactor md_vif, mailbox #(pkt4) actual_mbx, pkt4 dut_state);
-      this.md_vif = md_vif;
+    function new(virtual md_if.Monitor md_vif, mailbox #(pkt4) actual_mbx, pkt4 dut_state);      this.md_vif = md_vif;
       this.actual_mbx = actual_mbx;
       this.dut_state = dut_state;
     endfunction
@@ -29,14 +28,14 @@ class md_monitor;
 
     task monitor_tx();
       forever begin
-        @(md_vif.transactor_cb);
-        if (md_vif.transactor_cb.md_tx_valid && md_vif.transactor_cb.md_tx_ready) begin
-          // FIX: Create a new packet, capture the bus values, and send it to the scoreboard.
-          // Do not send a handle to a shared static object.
+        // Use the monitor's clocking block
+        @(md_vif.monitor_cb); // <<< CHANGED to use the monitor_cb
+        // This 'if' statement is now valid because all signals are inputs in monitor_cb
+        if (md_vif.monitor_cb.md_tx_valid && md_vif.monitor_cb.md_tx_ready) begin
           pkt4 actual_pkt = new();
-          actual_pkt.data   = md_vif.transactor_cb.md_tx_data;
-          actual_pkt.size   = md_vif.transactor_cb.md_tx_size;
-          actual_pkt.offset = md_vif.transactor_cb.md_tx_offset;
+          actual_pkt.data   = md_vif.monitor_cb.md_tx_data;
+          actual_pkt.size   = md_vif.monitor_cb.md_tx_size;
+          actual_pkt.offset = md_vif.monitor_cb.md_tx_offset;
           actual_mbx.put(actual_pkt);
         end
       end
