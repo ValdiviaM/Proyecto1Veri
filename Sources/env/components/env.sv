@@ -2,7 +2,7 @@
   class environment;
     virtual apb_if.Transactor apb_vif;
     virtual md_if.Transactor  md_vif;
-    virtual md_if_monitor.Monitor md_monitor_vif;
+    virtual md_if.Monitor md_monitor_vif;
     test_sync sync;
     apb_driver  apb_drv;
     md_driver   md_drv;
