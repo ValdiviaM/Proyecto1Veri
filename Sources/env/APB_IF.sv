@@ -1,6 +1,7 @@
 interface apb_if #(parameter ADDR_WIDTH = 16, DATA_WIDTH = 32);
 
   // APB Signals
+  logic pclk;
   logic [ADDR_WIDTH-1:0] paddr;
   logic                  pwrite;
   logic                  psel;
@@ -9,6 +10,12 @@ interface apb_if #(parameter ADDR_WIDTH = 16, DATA_WIDTH = 32);
   logic                  pready;
   logic [DATA_WIDTH-1:0] prdata;
   logic                  pslverr;
+
+  clocking master_cb @(posedge pclk);
+    default input #1step output #0; // Evita race conditions
+    output paddr, pwrite, psel, penable, pwdata;
+    input  pready, prdata, pslverr;
+  endclocking
 
   // Modports for DUT and TB sides
   modport DUT (
