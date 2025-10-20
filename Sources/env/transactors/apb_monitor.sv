@@ -15,15 +15,9 @@ class apb_monitor;
   task run();
     forever begin
       @(apb_vif.master_cb);
-      if (apb_vif.master_cb.psel && apb_vif.master_cb.penable && apb_vif.master_cb.pready) begin
-        if (apb_vif.master_cb.pwrite) begin
-          // FIX: This monitor should observe the bus, but not send packets to the scoreboard.
-          // The line below has been removed.
-          // actual_mbx.put(dut_state);
-          
-          // Optionally, you could add a display here for debugging purposes.
-          $display("[APB_MON] Detected APB write to addr %h with data %h", 
-                  apb_vif.master_cb.paddr, apb_vif.master_cb.pwdata);
+      if (apb_vif.psel && apb_vif.penable && apb_vif.pready) begin
+        if (apb_vif.pwrite) begin
+          $display("[APB_MON] Write to %h with %h", apb_vif.paddr, apb_vif.pwdata);
         end
       end
     end

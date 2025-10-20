@@ -1,3 +1,4 @@
+`include "DUT/design.v"
 `include "interfaces/apb_if.sv"
 `include "interfaces/md_if.sv"
 
