@@ -21,7 +21,7 @@ class md_monitor;
 
     task monitor_rx();
       forever begin
-        @(md_vif.transactor_cb);
+        @(md_vif.monitor_cb);
         // Logic to monitor the RX channel could be added here if needed.
       end
     endtask
