@@ -1,44 +1,42 @@
-class pkt2;
-  // Timing
+// Clase base con temporización
+class pkt_base;
   rand int unsigned inter_pkt_time_ns;
+  constraint c_delay { inter_pkt_time_ns inside {[0:10000]}; }
+endclass
 
-  // Window
-  rand bit with_window;
+// Paquete para el driver APB
+class apb_pkt extends pkt_base;
+  rand bit        write_en;
+  rand bit [15:0] addr; // Coincide con ADDR_WIDTH del DUT
+  rand bit [31:0] data;
+endclass
 
-  // Data arrays
-  rand bit [31:0] data[];       // arreglo de palabras
-  rand bit [2:0]  size[];       // bytes: 1,2,4
-  rand bit [1:0]  offset[];     // 0..3
+// Paquete para el driver MD
+class md_pkt extends pkt_base;
+  rand int unsigned num_words = 1; // Para controlar el tamaño del paquete
+  rand bit [31:0] data[];
+  rand bit [2:0]  size[];
+  rand bit [1:0]  offset[];
 
-  // Optional: capture output from DUT
-  bit [31:0] data_out[];        // mismo tamaño que data
-
-  // Optional: for APB transactions
-  bit write_en;
-  bit [31:0] addr;
-
-  // Constructor
-  function new(); endfunction
-
-  // Post-randomization coherence
-  function void post_randomize();
-    if (data.size() == 0) begin
-      data = new[1];
-      size = new[1];
-      offset = new[1];
-      data[0] = $urandom();
-      size[0] = 3'd4;
-      offset[0] = 2'd0;
-    end
-
-    // Ensure output array same size
-    data_out = new[data.size()];
-  endfunction
-
-  // Constraints
   constraint c_sizes {
+    // Primero, restringir el número de palabras del paquete
+    num_words inside {[1:16]}; // Por ejemplo, paquetes de 1 a 16 palabras
+    
+    // Forzar a los arreglos a tener el tamaño correcto
+    data.size() == num_words;
+    size.size() == num_words;
+    offset.size() == num_words;
+
+    // Restringir los valores de cada elemento
     foreach(size[i]) size[i] inside {3'd1, 3'd2, 3'd4};
-    foreach(offset[i]) offset[i] inside {[0:3]};
-    inter_pkt_time_ns inside {[0:10000]};
+  }
+
+  constraint c_legal_combinations {
+    foreach(data[i]) {
+      // Un size de 2 bytes solo es válido en offsets pares
+      (size[i] == 2) -> (offset[i] % 2 == 0);
+      // Un size de 4 bytes solo es válido en offset 0
+      (size[i] == 4) -> (offset[i] == 0);
+    }
   }
 endclass

@@ -3,13 +3,27 @@
 
 class md_driver;
   virtual md_if.Transactor md_vif;
+  mailbox #(md_pkt) drv_mbx;
 
-  function new(virtual md_if.Transactor md_vif);
+  function new(virtual md_if.Transactor md_vif, mailbox #(md_pkt) drv_mbx);
     this.md_vif = md_vif;
+    this.drv_mbx = drv_mbx;
   endfunction
-
-  // Tarea para manejar el canal de recepción del Testbench (salida del DUT)
-  // Esta tarea debe ser lanzada en un fork...join_none al inicio del test.
+  
+  task run();
+    fork
+    run_tx_handler(); // Manages md_tx_ready
+    run_rx_sender(); // Sends md_rx data
+    join_none
+    endtask
+    task run_rx_sender();
+    forever begin
+    md_pkt pkt;
+    drv_mbx.get(pkt); // Wait for a transaction from the generator
+    drive_transaction(pkt);
+  end
+  endtask
+  
   task run_tx_handler();
     // Por defecto, siempre estamos listos para recibir datos del DUT.
     // Esto es crucial, sin esto el DUT se bloquearía.
