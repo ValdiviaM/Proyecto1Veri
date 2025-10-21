@@ -1,52 +1,51 @@
+interface md_interface #(
+    parameter ALGN_DATA_WIDTH = 32
+);
 
-  interface md_if #(parameter DATA_WIDTH = 32, OFFSET_WIDTH = 2, SIZE_WIDTH = 3);
-    logic clk;
-    logic reset_n;
-    
-    logic md_rx_valid;
-    logic [DATA_WIDTH-1:0] md_rx_data;
-    logic [OFFSET_WIDTH-1:0] md_rx_offset;
-    logic [SIZE_WIDTH-1:0] md_rx_size;
-    logic md_rx_ready;
-    logic md_rx_err;
+  localparam int unsigned ALGN_OFFSET_WIDTH = (ALGN_DATA_WIDTH <= 8) ? 1 : $clog2(ALGN_DATA_WIDTH/8);
+  localparam int unsigned ALGN_SIZE_WIDTH   = $clog2(ALGN_DATA_WIDTH/8)+1;
 
-    logic md_tx_valid;
-    logic [DATA_WIDTH-1:0] md_tx_data;
-    logic [OFFSET_WIDTH-1:0] md_tx_offset;
-    logic [SIZE_WIDTH-1:0] md_tx_size;
-    logic md_tx_ready;
-    logic md_tx_err;
+  logic                        clk;
+  logic                        reset_n;
+  logic                        valid;
+  logic [ALGN_DATA_WIDTH-1:0]  data;
+  logic [ALGN_OFFSET_WIDTH-1:0] offset;
+  logic [ALGN_SIZE_WIDTH-1:0]  size;
+  logic                        ready;
+  logic                        err;
 
-    clocking transactor_cb @(posedge clk);
-      default input #1step output #0;
-      output md_rx_valid, md_rx_data, md_rx_offset, md_rx_size;
-      input  md_rx_ready, md_rx_err;
-      input  md_tx_valid, md_tx_data, md_tx_offset, md_tx_size;
-      output  md_tx_ready, md_tx_err;
-    endclocking;
-    
-    clocking monitor_cb @(posedge clk);
-      default input #1step output #0;
-      input md_rx_valid, md_rx_data, md_rx_offset, md_rx_size;
-      input md_rx_ready, md_rx_err;
-      input md_tx_valid, md_tx_data, md_tx_offset, md_tx_size;
-      input md_tx_ready, md_tx_err; // <<< Now an input for the monitor
-    endclocking;
+  // --- Clocking Block para el DRIVER (Activo) ---
+  clocking drv_cb @(posedge clk);
+    default input #1step output #2;
+    output valid, data, offset, size, err;
+    input  ready;
+  endclocking
 
-    modport DUT (
-      input  clk, reset_n, md_rx_valid, md_rx_data, md_rx_offset, md_rx_size, md_tx_ready, md_tx_err,
-      output md_rx_ready, md_rx_err, md_tx_valid, md_tx_data, md_tx_offset, md_tx_size
-    );
+  // --- Clocking Block para el MONITOR (Pasivo) ---
+  clocking mon_cb @(posedge clk);
+    default input #1step;
+    // El monitor solo lee, por lo que todo es 'input'
+    input valid, data, offset, size, err, ready;
+  endclocking
 
-    modport Transactor (
-      clocking transactor_cb,
-      input clk,
-      output reset_n
-    );
+  // --- Modports (Conectores) ---
 
-    modport Monitor (
-      clocking monitor_cb,
-      input clk,
-      input reset_n
-    );
-  endinterface
+  // Modport para el Driver (Master)
+  modport Master (
+    clocking drv_cb, // <-- CAMBIO: Exporta el clocking block
+    input clk, reset_n
+  );
+
+  // Modport para el DUT (Slave)
+  modport Slave (
+    input  valid, data, offset, size, err, clk, reset_n,
+    output ready
+  );
+
+  // Modport para el Monitor pasivo
+  modport Monitor (
+    clocking mon_cb, // <-- CAMBIO: Exporta el clocking block
+    input clk, reset_n
+  );
+
+endinterface

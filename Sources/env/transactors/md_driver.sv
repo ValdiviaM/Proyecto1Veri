@@ -1,53 +1,62 @@
+//
+// Archivo: md_driver.sv
+// Descripción: Driver para el bus de datos MD.
+//              Toma transacciones 'md_packet' de un mailbox y las conduce
+//              sobre una interfaz MD virtual.
+//
+
 class md_driver;
-    virtual md_if.Transactor md_vif;
-    mailbox #(md_pkt) drv_mbx;
 
-    function new(virtual md_if.Transactor md_vif, mailbox #(md_pkt) drv_mbx);
-      this.md_vif = md_vif;
-      this.drv_mbx = drv_mbx;
-    endfunction
+  string name = "MD_Driver";
+  // CAMBIO: Se califica la interfaz virtual con el modport 'Master'
+  virtual md_interface.Master vif;     
+  mailbox #(md_packet) drv_mbx; 
 
-    task run();
-      fork
-        run_tx_handler();
-        run_rx_sender();
-      join_none
-    endtask
+  // CAMBIO: El constructor ahora espera un handle del tipo correcto
+  function new(virtual md_interface.Master vif, mailbox #(md_packet) drv_mbx);
+    this.vif = vif;
+    this.drv_mbx = drv_mbx;
+  endfunction
 
-    task run_rx_sender();
-      forever begin
-        md_pkt pkt;
-        drv_mbx.get(pkt);
-        drive_transaction(pkt);
+  task run();
+    $display("[%s] El driver ha comenzado.", name);
+    reset_signals();
+    forever begin
+      md_packet pkt;
+      drv_mbx.get(pkt);
+      $display("[%s] Recibido paquete del generador. Conduciendo a la interfaz...", name);
+      drive_packet(pkt);
+      if (pkt.delay_cycles > 0) begin
+        $display("[%s] Esperando %0d ciclos de retardo.", name, pkt.delay_cycles);
+        // CAMBIO: Se usa el clocking block correcto
+        repeat(pkt.delay_cycles) @(vif.drv_cb);
       end
-    endtask
+    end
+  endtask
 
-    task run_tx_handler();
-      md_vif.transactor_cb.md_tx_ready <= 1'b1;
-      md_vif.transactor_cb.md_tx_err   <= 1'b0;
-      forever @(md_vif.transactor_cb);
-    endtask
+  protected task drive_packet(md_packet pkt);
+    // CAMBIO: Se reemplaza 'tb_cb' por 'drv_cb' en toda la tarea
+    @(vif.drv_cb);
+    vif.drv_cb.valid  <= 1'b1;
+    vif.drv_cb.data   <= pkt.data;
+    vif.drv_cb.offset <= pkt.offset;
+    vif.drv_cb.size   <= pkt.size;
+    
+    while (!vif.drv_cb.ready) begin
+      @(vif.drv_cb);
+    end
+    
+    @(vif.drv_cb);
+    reset_signals();
+    $display("[%s] Paquete enviado exitosamente.", name);
+  endtask
 
-    task drive_transaction(md_pkt p);
-      if (p.inter_pkt_time_ns > 0) begin
-        md_vif.transactor_cb.md_rx_valid <= 1'b0;
-        // FIX: Use the clocking block for all delays to avoid race conditions.
-        // The clock period is 10ns, so divide by 10.
+  protected task reset_signals();
+    // CAMBIO: Se reemplaza 'tb_cb' por 'drv_cb'
+    vif.drv_cb.valid  <= 1'b0;
+    vif.drv_cb.data   <= 'x;
+    vif.drv_cb.offset <= 'x;
+    vif.drv_cb.size   <= 'x;
+  endtask
 
-
-        repeat(p.inter_pkt_time_ns / 10) @(md_vif.transactor_cb);
-      end
-
-      foreach(p.data[i]) begin
-        md_vif.transactor_cb.md_rx_valid  <= 1'b1;
-        md_vif.transactor_cb.md_rx_data   <= p.data[i];
-        md_vif.transactor_cb.md_rx_size   <= p.size[i];
-        md_vif.transactor_cb.md_rx_offset <= p.offset[i];
-        do @(md_vif.transactor_cb); while (!md_vif.transactor_cb.md_rx_ready);
-        $display("[MD_DRV] driving md_rx_data=0x%08h size=%0d offset=%0d (wait for md_rx_ready)",
-         p.data[i], p.size[i], p.offset[i]);
-      end
-      md_vif.transactor_cb.md_rx_valid <= 1'b0;
-      @(md_vif.transactor_cb);
-    endtask
-  endclass
+endclass
