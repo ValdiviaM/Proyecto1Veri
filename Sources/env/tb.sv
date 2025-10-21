@@ -5,8 +5,6 @@
 `include "packets/apb_transaction.sv"
 `include "packets/config_pkt.sv"
 `include "packets/md_packet.sv"
-`include "packets/pkt4.sv"
-`include "packets/pkt6.sv"
 
 `include "transactors/apb_driver.sv"
 `include "transactors/md_driver.sv"
