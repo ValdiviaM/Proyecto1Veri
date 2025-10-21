@@ -52,7 +52,7 @@ class test;
     //--- Fase 5: Drenado y Finalización ---//
     // Damos un tiempo extra para que los últimos paquetes atraviesen el DUT
     // y sean procesados por el scoreboard.
-    #1000ns;
+    #10000000ns;
     
     $display("[%s] Simulación completada. Generando reporte...", name);
     

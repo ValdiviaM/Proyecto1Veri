@@ -46,6 +46,8 @@
   assign md_tx_if.clk     = clk;
   assign md_tx_if.reset_n = reset_n;
 
+  assign md_tx_if.ready = 1'b1;
+  assign md_tx_if.err   = 1'b0;
   //--- Instanciación del DUT (Device Under Test) ---//
   cfs_aligner #(
     .ALGN_DATA_WIDTH(ALGN_DATA_WIDTH),
@@ -103,6 +105,7 @@
     
     // Pasa los handles de las interfaces al test para que las distribuya
     my_test.run(md_rx_if, md_tx_if, apb_if);
+    #100;
   end
 
   // Opcional: Para dumpear las ondas para depuración visual (ej. con DVE o Verdi)
