@@ -10,8 +10,11 @@ class generator;
   // Mailboxes para comunicarse con los drivers
   mailbox #(md_packet)        md_drv_mbx;
   mailbox #(apb_transaction)  apb_drv_mbx;
+  
+  // Handle para el evento que se recibirá desde el entorno
+  event generation_done_event;
 
-  // Constructor
+  // Constructor (sin cambios)
   function new(mailbox #(md_packet) md_drv_mbx, mailbox #(apb_transaction) apb_drv_mbx);
     this.md_drv_mbx = md_drv_mbx;
     this.apb_drv_mbx = apb_drv_mbx;
@@ -19,51 +22,51 @@ class generator;
 
   // Tarea principal que inicia la generación de estímulos
   task run();
-    $display("[%s] El generador ha comenzado.", name);
-    // Lanza la generación de ambos tipos de estímulo en paralelo.
-    // Esto permite que las escrituras de registros APB ocurran mientras
-    // se están enviando paquetes de datos, un escenario de prueba más realista.
+    $display("[%s] El generador ha comenzado a crear estímulos.", name);
+    
+    // Tu lógica original era la correcta: lanzar ambas tareas en paralelo
+    // y esperar a que la más lenta (APB) termine.
     fork
       run_md_stimulus();
       run_apb_stimulus();
     join
-    $display("[%s] El generador ha terminado de crear todos los estímulos.", name);
+    
+    $display("[%s] El generador ha terminado de poner todos los estímulos en los mailboxes.", name);
+    
+    // *** CORRECCIÓN CLAVE ***
+    // Añadimos un retardo mínimo aquí. Esto rompe la condición de carrera.
+    // Le da al resto del entorno un ciclo de simulación para reaccionar a la
+    // ÚLTIMA transacción que se acaba de generar, antes de que el test
+    // empiece a comprobar si el scoreboard está inactivo.
+    #1ns;
+    
+    // Ahora, disparamos el evento.
+    -> generation_done_event;
+    
   endtask
 
-  // Tarea que genera el número configurado de paquetes de datos MD
+  // Tarea que genera el número configurado de paquetes de datos MD (sin cambios)
   protected task run_md_stimulus();
     repeat (num_md_packets_to_generate) begin
       md_packet pkt = new();
-      
-      // Aleatoriza el paquete. Si falla, es un error fatal del testbench.
       if (!pkt.randomize()) begin
         $fatal(1, "[%s] ¡Falló la aleatorización del MD Packet!", name);
       end
-      
-      $display("[%s] Generado -> %s", name, pkt.display());
-      
-      // Coloca el paquete aleatorizado en el mailbox del driver de MD
+      // $display("[%s] Generado -> %s", name, pkt.display());
       md_drv_mbx.put(pkt);
     end
   endtask
 
-  // Tarea que genera el número configurado de operaciones APB
+  // Tarea que genera el número configurado de operaciones APB (sin cambios)
   protected task run_apb_stimulus();
-    // Agregamos un pequeño retardo inicial para no competir con el reset
     #100ns;
     repeat (num_apb_ops_to_generate) begin
       apb_transaction tx = new();
-      
       if (!tx.randomize()) begin
         $fatal(1, "[%s] ¡Falló la aleatorización de la APB Transaction!", name);
       end
-      
-      $display("[%s] Generado -> %s", name, tx.display());
-
-      // Coloca la transacción aleatorizada en el mailbox del driver de APB
+      // $display("[%s] Generado -> %s", name, tx.display());
       apb_drv_mbx.put(tx);
-
-      // Espera un tiempo aleatorio antes de la siguiente operación de registro
       #(($urandom_range(50, 200)) * 1ns);
     end
   endtask

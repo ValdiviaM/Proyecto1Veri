@@ -181,6 +181,10 @@ class scoreboard;
                name, predicted_pkt.data, predicted_pkt.size, predicted_pkt.offset);
     end
   endfunction
+
+  function bit is_idle();
+    return (m_byte_buffer_q.size() == 0 && m_expected_q.size() == 0);
+  endfunction
   
   //--- Reporte Final ---//
   function void report();

@@ -42,17 +42,36 @@ class test;
     //--- Fase 4: Ejecución ---//
     // Lanza todos los procesos en segundo plano (drivers, monitores, scoreboard)
     env.run_phase();
-    
+    env.m_gen.run();    
     // Ahora, explícitamente, corre la generación de estímulos y ESPERA a que termine.
     // Esto nos da un punto claro de finalización para el estímulo.
-    env.m_gen.run();
     
     $display("[%s] Toda la generación de estímulos ha terminado.", name);
 
     //--- Fase 5: Drenado y Finalización ---//
     // Damos un tiempo extra para que los últimos paquetes atraviesen el DUT
     // y sean procesados por el scoreboard.
-    #10000000ns;
+    @(env.generation_done);
+    $display("[%s] Esperando a que el scoreboard procese los paquetes restantes...", name);
+
+    // CAMBIO: Reemplazamos el retardo fijo por una espera inteligente y con timeout.
+    fork
+      begin
+        // Espera hasta que la función is_idle() del scoreboard devuelva 'true'.
+        // Esto solo ocurrirá cuando todos los paquetes hayan fluido a través del DUT
+        // y hayan sido verificados.
+        #1ns
+        wait(env.m_scoreboard.is_idle() == 1);
+        $display("[%s] Scoreboard está inactivo. Drenaje completado.", name);
+      end
+      
+      begin
+        // Timeout de seguridad. Si el scoreboard nunca queda inactivo
+        // (debido a un paquete perdido o un deadlock), la simulación terminará aquí.
+        #2000ns; // Ajusta este valor según la duración esperada de tu test
+        $error("[%s] ¡TIMEOUT! El scoreboard nunca quedó inactivo. La simulación puede estar colgada.", name);
+      end
+    join_any // Termina en cuanto uno de los dos bloques ('wait' o 'timeout') finalice.
     
     $display("[%s] Simulación completada. Generando reporte...", name);
     
@@ -65,3 +84,4 @@ class test;
   endtask
 
 endclass
+

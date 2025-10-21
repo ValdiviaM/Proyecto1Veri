@@ -19,6 +19,8 @@ class environment;
   protected mailbox #(md_packet)        md_tx_mon2scb_mbx;
   protected mailbox #(apb_transaction)  apb_mon2scb_mbx;
   
+  event generation_done;
+
   function new(virtual md_interface md_rx_vif,
                virtual md_interface md_tx_vif,
                virtual apb_interface apb_vif);
@@ -49,14 +51,13 @@ class environment;
     m_apb_monitor = new(m_apb_vif.Monitor, apb_mon2scb_mbx); // Usando el modport .Monitor
     
     m_scoreboard = new(md_rx_mon2scb_mbx, md_tx_mon2scb_mbx, apb_mon2scb_mbx);
-
+    m_gen.generation_done_event = this.generation_done;
     $display("[%s] Todos los componentes del entorno han sido construidos.", name);
   endtask
   
   task run_phase();
     $display("[%s] Fase de Ejecución (Run)... Lanzando todos los procesos.", name);
     fork
-      m_gen.run();
       m_md_driver.run();
       m_apb_driver.run();
       m_md_rx_monitor.run();
