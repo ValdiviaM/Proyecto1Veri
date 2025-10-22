@@ -30,6 +30,19 @@ class scoreboard;
   protected int unsigned shadow_rx_fifo_level = 0;
   protected int unsigned shadow_tx_fifo_level = 0;
 
+  //--- Shadow IRQ Status Bits (W1C - Sticky) ---//
+  protected bit shadow_irq_rx_fifo_empty = 0;
+  protected bit shadow_irq_rx_fifo_full  = 0;
+  protected bit shadow_irq_tx_fifo_empty = 0;
+  protected bit shadow_irq_tx_fifo_full  = 0;
+  protected bit shadow_irq_max_drop      = 0;
+  
+  //--- Shadow IRQ Enable Bits (RW) ---//
+  protected bit shadow_irqen_rx_fifo_empty = 0;
+  protected bit shadow_irqen_rx_fifo_full  = 0;
+  protected bit shadow_irqen_tx_fifo_empty = 0;
+  protected bit shadow_irqen_tx_fifo_full  = 0;
+  protected bit shadow_irqen_max_drop      = 0;
 
   //--- Contadores para el reporte final ---//
   int unsigned match_count = 0;
@@ -199,22 +212,29 @@ class scoreboard;
         `ADDR_IRQEN: begin
           if (tx.op == APB_WRITE) begin
             apb_writes_processed++;
-            $display("[%s] APB: IRQEN updated - value=%h", name, tx.wdata);
-          end else begin
-            apb_reads_processed++;
-            $display("[%s] APB: IRQEN read - value=%h", name, tx.rdata);
-          end
-        end
+            // Update shadow enable bits
+            shadow_irqen_rx_fifo_empty = tx.wdata[LSB_IRQEN_RX_FIFO_EMPTY];
+            shadow_irqen_rx_fifo_full  = tx.wdata[LSB_IRQEN_RX_FIFO_FULL];
+            shadow_irqen_tx_fifo_empty = tx.wdata[LSB_IRQEN_TX_FIFO_EMPTY];
+            shadow_irqen_tx_fifo_full  = tx.wdata[LSB_IRQEN_TX_FIFO_FULL];
+            shadow_irqen_max_drop      = tx.wdata[LSB_IRQEN_MAX_DROP];
+            
+            $display("[%s] APB: IRQEN updated - RX_EMPTY=%b, RX_FULL=%b, TX_EMPTY=%b, TX_FULL=%b, MAX_DROP=%b",
+                     name, shadow_irqen_rx_fifo_empty, shadow_irqen_rx_fifo_full,
+                     shadow_irqen_tx_fifo_empty, shadow_irqen_tx_fifo_full, shadow_irqen_max_drop);
         
         `ADDR_IRQ: begin
           if (tx.op == APB_WRITE) begin
             apb_writes_processed++;
+            // W1C: Clear bits where wdata has 1
+            if (tx.wdata[LSB_IRQ_RX_FIFO_EMPTY]) shadow_irq_rx_fifo_empty = 0;
+            if (tx.wdata[LSB_IRQ_RX_FIFO_FULL])  shadow_irq_rx_fifo_full  = 0;
+            if (tx.wdata[LSB_IRQ_TX_FIFO_EMPTY]) shadow_irq_tx_fifo_empty = 0;
+            if (tx.wdata[LSB_IRQ_TX_FIFO_FULL])  shadow_irq_tx_fifo_full  = 0;
+            if (tx.wdata[LSB_IRQ_MAX_DROP])      shadow_irq_max_drop      = 0;
+            
             $display("[%s] APB: IRQ W1C write - clearing bits=%h", name, tx.wdata);
-          end else begin
-            apb_reads_processed++;
-            $display("[%s] APB: IRQ read - value=%h", name, tx.rdata);
-          end
-        end
+          end 
 
         default: begin
           // Acceso a unmapped address que deben retornar error
@@ -239,7 +259,18 @@ class scoreboard;
     return status;
   endfunction
 
-
+// REvisar valor de salida de los IRQ's
+  protected function bit compute_expected_irq_pin();
+    bit expected_irq = 0;
+    
+    expected_irq |= (shadow_irq_rx_fifo_empty & shadow_irqen_rx_fifo_empty);
+    expected_irq |= (shadow_irq_rx_fifo_full  & shadow_irqen_rx_fifo_full);
+    expected_irq |= (shadow_irq_tx_fifo_empty & shadow_irqen_tx_fifo_empty);
+    expected_irq |= (shadow_irq_tx_fifo_full  & shadow_irqen_tx_fifo_full);
+    expected_irq |= (shadow_irq_max_drop      & shadow_irqen_max_drop);
+    
+    return expected_irq;
+  endfunction
 
   //--- Modelo de Referencia (Golden Model) ---//
 
