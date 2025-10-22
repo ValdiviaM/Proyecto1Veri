@@ -30,10 +30,6 @@ class scoreboard;
   protected int unsigned shadow_rx_fifo_level = 0;
   protected int unsigned shadow_tx_fifo_level = 0;
 
-//--- fOR THE REPORT ----//
-  int unsigned apb_writes_processed = 0;
-  int unsigned apb_reads_processed = 0;
-  int unsigned apb_errors_expected = 0;
 
   //--- Contadores para el reporte final ---//
   int unsigned match_count = 0;
@@ -89,9 +85,23 @@ class scoreboard;
         shadow_cnt_drop++;
         $display("[%s] Modelo: Paquete de entrada ILEGAL detectado y descartado (size=%0d, offset=%0d).", name, rx_pkt.size, rx_pkt.offset);
       end else begin
-        // El DUT habría aceptado este paquete en su FIFO. Nuestro modelo también lo procesa.
-        $display("[%s] Modelo: Paquete de entrada LEGAL aceptado. Pasando al predictor...", name);
+        legal_packets_received++;
+        
+        // Update shadow RX FIFO level (simplified - assumes FIFO has room)
+        if (shadow_rx_fifo_level < FIFO_DEPTH) begin
+          shadow_rx_fifo_level++;
+        end
+        
+        $display("[%s] Modelo: Paquete de entrada LEGAL aceptado. Pasando al predictor...(size=%0d, offset=%0d). RX FIFO level: %0d", 
+                 name, rx_pkt.size, rx_pkt.offset, shadow_rx_fifo_level);
+        
+        //Predecir salidad basada en el paquete lega
         predict_dut_output(rx_pkt);
+
+        // Simular FIFO consumida por el controlador
+        if (shadow_rx_fifo_level > 0) begin
+          shadow_rx_fifo_level--;
+        end
       end
 
       // <-- IMPORTANTE: ya NO reportamos el paquete procesado al environment aquí.
@@ -185,6 +195,36 @@ class scoreboard;
             end
           end
         end
+
+        `ADDR_IRQEN: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            $display("[%s] APB: IRQEN updated - value=%h", name, tx.wdata);
+          end else begin
+            apb_reads_processed++;
+            $display("[%s] APB: IRQEN read - value=%h", name, tx.rdata);
+          end
+        end
+        
+        `ADDR_IRQ: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            $display("[%s] APB: IRQ W1C write - clearing bits=%h", name, tx.wdata);
+          end else begin
+            apb_reads_processed++;
+            $display("[%s] APB: IRQ read - value=%h", name, tx.rdata);
+          end
+        end
+
+        default: begin
+          // Acceso a unmapped address que deben retornar error
+          apb_errors_expected++;
+          if (!tx.error) begin
+            $error("[%s] APB: Expected ERROR on unmapped address %h not seen!", name, tx.addr);
+          end else begin
+            $display("[%s] APB: Unmapped address %h correctly generated ERROR.", name, tx.addr);
+          end
+        end        
       endcase
     end
   endtask
@@ -243,6 +283,10 @@ class scoreboard;
       // 4. Añade el paquete de salida esperado a la cola de expectativas.
       m_expected_q.push_back(predicted_pkt);
 
+      // Actualizar shadow TX FIFO level
+      if (shadow_tx_fifo_level < FIFO_DEPTH) begin
+        shadow_tx_fifo_level++;
+      end
       // --- NUEVO: informamos al environment que hemos incrementado el número de outputs esperados.
 //      if (m_env != null) m_env.add_expected_outputs(1);
       
