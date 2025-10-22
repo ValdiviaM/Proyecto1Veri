@@ -1,3 +1,5 @@
+typedef class environment;
+
 class scoreboard;
   import dut_params_pkg::*;
 
@@ -11,6 +13,8 @@ class scoreboard;
   //--- Componentes de utilidad ---//
   protected checker    m_checker;
   protected csv_logger m_logger;
+
+  protected environment m_env;
   
   //--- Colas internas y Modelo del DUT ---//
   protected md_packet  m_expected_q[$];
@@ -28,10 +32,12 @@ class scoreboard;
   //--- Constructor ---//
   function new(mailbox #(md_packet) rx_mon_mbx,
                mailbox #(md_packet) tx_mon_mbx,
-               mailbox #(apb_transaction) apb_mon_mbx);
+               mailbox #(apb_transaction) apb_mon_mbx,
+               environment m_env); // << MODIFICAR
     this.rx_mon_mbx  = rx_mon_mbx;
     this.tx_mon_mbx  = tx_mon_mbx;
     this.apb_mon_mbx = apb_mon_mbx;
+    this.m_env = m_env; // << AÑADIR: Asignar el handle
     
     m_checker = new();
     m_logger  = new("simulation_log.csv"); 
@@ -76,6 +82,8 @@ class scoreboard;
         $display("[%s] Modelo: Paquete de entrada LEGAL aceptado. Pasando al predictor...", name);
         predict_dut_output(rx_pkt);
       end
+      m_env.report_packet_processed();
+
     end
   endtask
 
@@ -181,10 +189,6 @@ class scoreboard;
                name, predicted_pkt.data, predicted_pkt.size, predicted_pkt.offset);
     end
   endfunction
-
-  function bit is_idle();
-    return (m_byte_buffer_q.size() == 0 && m_expected_q.size() == 0);
-  endfunction
   
   //--- Reporte Final ---//
   function void report();
@@ -201,3 +205,4 @@ class scoreboard;
   endfunction
 
 endclass
+

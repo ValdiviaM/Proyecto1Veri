@@ -2,5 +2,5 @@
 
 #rm -rfv `ls |grep -v ".*\.sv\|.*\.sh\|^figures$"`;
 
-vcs -incdir DUT -incdir tests -incdir packets -incdir components -incdir transactors -incdir interfaces tb.sv  -o salida -full64 -debug_all -timescale=1ns/1ns -sverilog -l log_test +lint=TFIPC-L -cm line+tgl+cond+fsm+branch+assert;
+vcs -Mupdate -incdir DUT -incdir tests -incdir packets -incdir components -incdir transactors -incdir interfaces tb.sv  -o salida -full64 -debug_all -timescale=1ns/1ns -sverilog -l log_test +lint=TFIPC-L -cm line+tgl+cond+fsm+branch+assert;
 
