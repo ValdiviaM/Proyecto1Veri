@@ -24,6 +24,16 @@ class scoreboard;
   protected bit [ALGN_SIZE_WIDTH-1:0]   shadow_ctrl_size   = 1;
   protected bit [ALGN_OFFSET_WIDTH-1:0] shadow_ctrl_offset = 0;
   protected int unsigned                shadow_cnt_drop    = 0;
+  protected bit                         shadow_cnt_drop_maxed = 0;
+
+ //--- Shadow FIFO Level Tracking ---//
+  protected int unsigned shadow_rx_fifo_level = 0;
+  protected int unsigned shadow_tx_fifo_level = 0;
+
+//--- fOR THE REPORT ----//
+  int unsigned apb_writes_processed = 0;
+  int unsigned apb_reads_processed = 0;
+  int unsigned apb_errors_expected = 0;
 
   //--- Contadores para el reporte final ---//
   int unsigned match_count = 0;
@@ -134,6 +144,9 @@ class scoreboard;
   
   protected task process_apb_config();
     forever begin
+      bit [31:0] expected_rdata;
+      bit expect_error;
+
       apb_transaction tx;
       apb_mon_mbx.get(tx);
       
@@ -146,12 +159,47 @@ class scoreboard;
             if(tx.wdata[LSB_CTRL_CLR]) shadow_cnt_drop = 0;
           end
         end
+        // Esta lógica para verificar lecturas es correcta.
         `ADDR_STATUS: begin
-            // Esta lógica para verificar lecturas es correcta.
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            //  STATUS deberia generar un error
+            apb_errors_expected++;
+            if (!tx.error) begin
+              $error("[%s] APB: Expected ERROR on STATUS write not seen!", name);
+            end else begin
+              $display("[%s] APB: STATUS write ERROR correctly generated.", name);
+            end
+          end else begin // Lectura
+            apb_reads_processed++;
+            expected_rdata = build_expected_status();
+            
+            if (tx.rdata !== expected_rdata) begin
+              $warning("[%s] APB: STATUS read mismatch!", name);
+              $warning("        Expected: %h (CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d)", 
+                       expected_rdata, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
+              $warning("        Actual:   %h", tx.rdata);
+            end else begin
+              $display("[%s] APB: STATUS read MATCH - CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d", 
+                       name, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
+            end
+          end
         end
       endcase
     end
   endtask
+
+
+  // Configuracion de los valores del STATUS register 
+  protected function bit [31:0] build_expected_status();
+    bit [31:0] status = 0;
+    status[LSB_STATUS_CNT_DROP +: STATUS_CNT_DROP_WIDTH] = shadow_cnt_drop[STATUS_CNT_DROP_WIDTH-1:0];
+    status[LSB_STATUS_RX_LVL +: STATUS_RX_LVL_WIDTH] = shadow_rx_fifo_level[STATUS_RX_LVL_WIDTH-1:0];
+    status[LSB_STATUS_TX_LVL +: STATUS_TX_LVL_WIDTH] = shadow_tx_fifo_level[STATUS_TX_LVL_WIDTH-1:0];
+    return status;
+  endfunction
+
+
 
   //--- Modelo de Referencia (Golden Model) ---//
 
@@ -218,4 +266,5 @@ class scoreboard;
   endfunction
 
 endclass
+
 
