@@ -33,11 +33,11 @@ class scoreboard;
   function new(mailbox #(md_packet) rx_mon_mbx,
                mailbox #(md_packet) tx_mon_mbx,
                mailbox #(apb_transaction) apb_mon_mbx,
-               environment m_env); // << MODIFICAR
+               environment m_env);
     this.rx_mon_mbx  = rx_mon_mbx;
     this.tx_mon_mbx  = tx_mon_mbx;
     this.apb_mon_mbx = apb_mon_mbx;
-    this.m_env = m_env; // << AÑADIR: Asignar el handle
+    this.m_env = m_env; // asigno handle del env
     
     m_checker = new();
     m_logger  = new("simulation_log.csv"); 
@@ -55,7 +55,9 @@ class scoreboard;
   
   //--- Tareas de Proceso ---//
 
-  // CAMBIO CLAVE: Esta tarea ahora replica la lógica del DUT para descartar paquetes
+  // CAMBIO CLAVE: Esta tarea ahora replica la lógica del DUT para descartar paquetes.
+  // NOTA: ya NO reporta al environment aquí; el reporting de progreso se hace cuando
+  // se verifica/loggea una salida (output) en process_outputs_and_check.
   protected task process_inputs_and_predict();
     forever begin
       md_packet rx_pkt;
@@ -65,7 +67,6 @@ class scoreboard;
       rx_mon_mbx.get(rx_pkt);
       
       // 2. REPLICA LA LÓGICA DEL 'cfs_rx_ctrl' PARA DETERMINAR SI ES LEGAL
-      //    Un paquete es ilegal si su tamaño es 0 o si no cumple la fórmula de alineación.
       if (rx_pkt.size == 0 || ((((ALGN_DATA_WIDTH / 8) + rx_pkt.offset) % rx_pkt.size) != 0)) begin
         is_pkt_legal = 0;
       end else begin
@@ -82,8 +83,8 @@ class scoreboard;
         $display("[%s] Modelo: Paquete de entrada LEGAL aceptado. Pasando al predictor...", name);
         predict_dut_output(rx_pkt);
       end
-      m_env.report_packet_processed();
 
+      // <-- IMPORTANTE: ya NO reportamos el paquete procesado al environment aquí.
     end
   endtask
 
@@ -98,6 +99,16 @@ class scoreboard;
       if (m_expected_q.size() == 0) begin
         $error("[%s] ¡Paquete de salida inesperado recibido del DUT! La cola de predicciones estaba vacía. Data: %h", name, actual_pkt.data);
         mismatch_count++;
+        // Aun así queremos loggear el evento como mismatch "sin esperado"
+        // Creamos un expected_pkt vacío para registrar en CSV (si procede)
+        expected_pkt = new();
+        expected_pkt.size = 0;
+        expected_pkt.offset = 0;
+        expected_pkt.data = '0;
+        m_logger.log_entry(0, actual_pkt, expected_pkt);
+
+        // Reportamos que se procesó (salida consumida y loggeada)
+        m_env.report_output_processed();
         continue;
       end
       
@@ -113,8 +124,11 @@ class scoreboard;
         // El checker (no provisto) debería imprimir los detalles del error.
       end
       
-      // AHORA ESTA LÍNEA SE EJECUTARÁ y el CSV se llenará.
+      // Loguea la comparación en el CSV (task)
       m_logger.log_entry(match, actual_pkt, expected_pkt);
+
+      // Reporta solo cuando se ha consumido/verificado y loggeado la salida.
+      m_env.report_output_processed();
     end
   endtask
   
@@ -141,15 +155,12 @@ class scoreboard;
 
   //--- Modelo de Referencia (Golden Model) ---//
 
-  // MEJORA: Se han movido todas las declaraciones de variables al inicio de la función
-  // para mejorar la legibilidad y la compatibilidad con todas las versiones de VCS.
   protected virtual function void predict_dut_output(md_packet input_pkt);
     // -- Declaración de variables locales --
     byte    current_byte;
     int     byte_index;
     
     // 1. Desensambla el paquete de entrada en bytes individuales y los añade a nuestro búfer.
-    //    Este búfer simula el flujo de datos que entra al módulo 'cfs_ctrl' del DUT.
     for (int i = 0; i < input_pkt.size; i++) begin
       byte_index = input_pkt.offset + i;
       current_byte = input_pkt.data[(byte_index*8) +: 8];
@@ -157,7 +168,6 @@ class scoreboard;
     end
     
     // 2. Comprueba si tenemos suficientes bytes en el búfer para crear uno o más paquetes de salida.
-    //    Este bucle 'while' es clave, ya que un paquete de entrada grande puede generar varios de salida.
     while (m_byte_buffer_q.size() >= shadow_ctrl_size) begin
       // -- Declaración de variables para el bucle --
       md_packet predicted_pkt = new();
@@ -182,8 +192,11 @@ class scoreboard;
       
       predicted_pkt.data = output_data;
       
-      // 4. Añade el paquete predicho a la cola de expectativas. La tarea 'process_outputs_and_check' lo usará.
+      // 4. Añade el paquete de salida esperado a la cola de expectativas.
       m_expected_q.push_back(predicted_pkt);
+
+      // --- NUEVO: informamos al environment que hemos incrementado el número de outputs esperados.
+//      if (m_env != null) m_env.add_expected_outputs(1);
       
       $display("[%s] Modelo: Paquete de salida PREDICHO y encolado. Data: %h, Size: %d, Offset: %d.",
                name, predicted_pkt.data, predicted_pkt.size, predicted_pkt.offset);
