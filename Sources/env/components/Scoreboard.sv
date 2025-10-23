@@ -48,6 +48,12 @@ class scoreboard;
   int unsigned match_count = 0;
   int unsigned mismatch_count = 0;
   
+int unsigned apb_writes_processed = 0;
+int unsigned apb_reads_processed = 0;
+int unsigned apb_errors_expected = 0;
+int unsigned legal_packets_received = 0;
+
+
   //--- Constructor ---//
   function new(mailbox #(md_packet) rx_mon_mbx,
                mailbox #(md_packet) tx_mon_mbx,
@@ -165,90 +171,169 @@ class scoreboard;
     end
   endtask
   
-  protected task process_apb_config();
-    forever begin
-      bit [31:0] expected_rdata;
-      bit expect_error;
 
-      apb_transaction tx;
-      apb_mon_mbx.get(tx);
-      
-      case (tx.addr)
-        `ADDR_CTRL: begin
-          if (tx.op == APB_WRITE) begin
-            $display("[%s] Escritura en ADDR_CTRL detectada. Actualizando modelo.", name);
-            shadow_ctrl_size = tx.wdata[LSB_CTRL_SIZE +: ALGN_SIZE_WIDTH];
-            shadow_ctrl_offset = tx.wdata[LSB_CTRL_OFFSET +: ALGN_OFFSET_WIDTH];
-            if(tx.wdata[LSB_CTRL_CLR]) shadow_cnt_drop = 0;
-          end
-        end
-        // Esta lógica para verificar lecturas es correcta.
-        `ADDR_STATUS: begin
-          if (tx.op == APB_WRITE) begin
-            apb_writes_processed++;
-            //  STATUS deberia generar un error
+protected task process_apb_config();
+  forever begin
+    apb_transaction tx;
+    bit [31:0] expected_rdata;
+    bit [31:0] expected_irqen;
+    bit [31:0] expected_irq;
+    bit expect_error;
+
+    apb_mon_mbx.get(tx);
+    
+    case (tx.addr)
+      `ADDR_CTRL: begin
+        if (tx.op == APB_WRITE) begin
+          apb_writes_processed++;
+          expect_error = check_ctrl_write_validity(tx.wdata);
+          
+          if (expect_error) begin
             apb_errors_expected++;
             if (!tx.error) begin
-              $error("[%s] APB: Expected ERROR on STATUS write not seen!", name);
+              $error("[%s] APB: Expected ERROR on CTRL write not seen! wdata=%h", name, tx.wdata);
             end else begin
-              $display("[%s] APB: STATUS write ERROR correctly generated.", name);
+              $display("[%s] APB: CTRL write ERROR correctly generated.", name);
             end
-          end else begin // Lectura
-            apb_reads_processed++;
-            expected_rdata = build_expected_status();
+          end else begin
+            // Valid write - update shadow registers
+            shadow_ctrl_size = tx.wdata[LSB_CTRL_SIZE +: ALGN_SIZE_WIDTH];
+            shadow_ctrl_offset = tx.wdata[LSB_CTRL_OFFSET +: ALGN_OFFSET_WIDTH];
             
-            if (tx.rdata !== expected_rdata) begin
-              $warning("[%s] APB: STATUS read mismatch!", name);
-              $warning("        Expected: %h (CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d)", 
-                       expected_rdata, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
-              $warning("        Actual:   %h", tx.rdata);
-            end else begin
-              $display("[%s] APB: STATUS read MATCH - CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d", 
-                       name, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
+            // Check CLR bit
+            if (tx.wdata[LSB_CTRL_CLR]) begin
+              shadow_cnt_drop = 0;
+              shadow_cnt_drop_maxed = 0;
+              $display("[%s] APB: CTRL.CLR written - drop counter reset to 0.", name);
             end
+            
+            $display("[%s] APB: CTRL updated - SIZE=%0d, OFFSET=%0d", 
+                     name, shadow_ctrl_size, shadow_ctrl_offset);
           end
+        end else begin // READ
+          apb_reads_processed++;
+          $display("[%s] APB: CTRL read - value=%h", name, tx.rdata);
         end
-
-        `ADDR_IRQEN: begin
-          if (tx.op == APB_WRITE) begin
-            apb_writes_processed++;
-            // Update shadow enable bits
-            shadow_irqen_rx_fifo_empty = tx.wdata[LSB_IRQEN_RX_FIFO_EMPTY];
-            shadow_irqen_rx_fifo_full  = tx.wdata[LSB_IRQEN_RX_FIFO_FULL];
-            shadow_irqen_tx_fifo_empty = tx.wdata[LSB_IRQEN_TX_FIFO_EMPTY];
-            shadow_irqen_tx_fifo_full  = tx.wdata[LSB_IRQEN_TX_FIFO_FULL];
-            shadow_irqen_max_drop      = tx.wdata[LSB_IRQEN_MAX_DROP];
-            
-            $display("[%s] APB: IRQEN updated - RX_EMPTY=%b, RX_FULL=%b, TX_EMPTY=%b, TX_FULL=%b, MAX_DROP=%b",
-                     name, shadow_irqen_rx_fifo_empty, shadow_irqen_rx_fifo_full,
-                     shadow_irqen_tx_fifo_empty, shadow_irqen_tx_fifo_full, shadow_irqen_max_drop);
-        
-        `ADDR_IRQ: begin
-          if (tx.op == APB_WRITE) begin
-            apb_writes_processed++;
-            // W1C: Clear bits where wdata has 1
-            if (tx.wdata[LSB_IRQ_RX_FIFO_EMPTY]) shadow_irq_rx_fifo_empty = 0;
-            if (tx.wdata[LSB_IRQ_RX_FIFO_FULL])  shadow_irq_rx_fifo_full  = 0;
-            if (tx.wdata[LSB_IRQ_TX_FIFO_EMPTY]) shadow_irq_tx_fifo_empty = 0;
-            if (tx.wdata[LSB_IRQ_TX_FIFO_FULL])  shadow_irq_tx_fifo_full  = 0;
-            if (tx.wdata[LSB_IRQ_MAX_DROP])      shadow_irq_max_drop      = 0;
-            
-            $display("[%s] APB: IRQ W1C write - clearing bits=%h", name, tx.wdata);
-          end 
-
-        default: begin
-          // Acceso a unmapped address que deben retornar error
+      end
+      
+      `ADDR_STATUS: begin
+        if (tx.op == APB_WRITE) begin
+          apb_writes_processed++;
+          // Writing to STATUS should generate error
           apb_errors_expected++;
           if (!tx.error) begin
-            $error("[%s] APB: Expected ERROR on unmapped address %h not seen!", name, tx.addr);
+            $error("[%s] APB: Expected ERROR on STATUS write not seen!", name);
           end else begin
-            $display("[%s] APB: Unmapped address %h correctly generated ERROR.", name, tx.addr);
+            $display("[%s] APB: STATUS write ERROR correctly generated.", name);
           end
-        end        
-      endcase
-    end
-  endtask
+        end else begin // READ
+          apb_reads_processed++;
+          expected_rdata = build_expected_status();
+          
+          if (tx.rdata !== expected_rdata) begin
+            $warning("[%s] APB: STATUS read mismatch!", name);
+            $warning("        Expected: %h (CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d)", 
+                     expected_rdata, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
+            $warning("        Actual:   %h", tx.rdata);
+          end else begin
+            $display("[%s] APB: STATUS read MATCH - CNT_DROP=%0d, RX_LVL=%0d, TX_LVL=%0d", 
+                     name, shadow_cnt_drop, shadow_rx_fifo_level, shadow_tx_fifo_level);
+          end
+        end
+      end
+      
+      `ADDR_IRQEN: begin
+        if (tx.op == APB_WRITE) begin
+          apb_writes_processed++;
+          // Update shadow enable bits
+          shadow_irqen_rx_fifo_empty = tx.wdata[LSB_IRQEN_RX_FIFO_EMPTY];
+          shadow_irqen_rx_fifo_full  = tx.wdata[LSB_IRQEN_RX_FIFO_FULL];
+          shadow_irqen_tx_fifo_empty = tx.wdata[LSB_IRQEN_TX_FIFO_EMPTY];
+          shadow_irqen_tx_fifo_full  = tx.wdata[LSB_IRQEN_TX_FIFO_FULL];
+          shadow_irqen_max_drop      = tx.wdata[LSB_IRQEN_MAX_DROP];
+          
+          $display("[%s] APB: IRQEN updated - RX_EMPTY=%b, RX_FULL=%b, TX_EMPTY=%b, TX_FULL=%b, MAX_DROP=%b",
+                   name, shadow_irqen_rx_fifo_empty, shadow_irqen_rx_fifo_full,
+                   shadow_irqen_tx_fifo_empty, shadow_irqen_tx_fifo_full, shadow_irqen_max_drop);
+        end else begin // READ
+          apb_reads_processed++;
+          expected_irqen = 0;
+          expected_irqen[LSB_IRQEN_RX_FIFO_EMPTY] = shadow_irqen_rx_fifo_empty;
+          expected_irqen[LSB_IRQEN_RX_FIFO_FULL]  = shadow_irqen_rx_fifo_full;
+          expected_irqen[LSB_IRQEN_TX_FIFO_EMPTY] = shadow_irqen_tx_fifo_empty;
+          expected_irqen[LSB_IRQEN_TX_FIFO_FULL]  = shadow_irqen_tx_fifo_full;
+          expected_irqen[LSB_IRQEN_MAX_DROP]      = shadow_irqen_max_drop;
+          
+          if (tx.rdata !== expected_irqen) begin
+            $warning("[%s] APB: IRQEN read mismatch! Expected: %h, Actual: %h", 
+                     name, expected_irqen, tx.rdata);
+          end else begin
+            $display("[%s] APB: IRQEN read MATCH - value=%h", name, tx.rdata);
+          end
+        end
+      end
+      
+      `ADDR_IRQ: begin
+        if (tx.op == APB_WRITE) begin
+          apb_writes_processed++;
+          // W1C: Clear bits where wdata has 1
+          if (tx.wdata[LSB_IRQ_RX_FIFO_EMPTY]) shadow_irq_rx_fifo_empty = 0;
+          if (tx.wdata[LSB_IRQ_RX_FIFO_FULL])  shadow_irq_rx_fifo_full  = 0;
+          if (tx.wdata[LSB_IRQ_TX_FIFO_EMPTY]) shadow_irq_tx_fifo_empty = 0;
+          if (tx.wdata[LSB_IRQ_TX_FIFO_FULL])  shadow_irq_tx_fifo_full  = 0;
+          if (tx.wdata[LSB_IRQ_MAX_DROP])      shadow_irq_max_drop      = 0;
+          
+          $display("[%s] APB: IRQ W1C write - clearing bits=%h", name, tx.wdata);
+        end else begin // READ
+          apb_reads_processed++;
+          expected_irq = 0;
+          expected_irq[LSB_IRQ_RX_FIFO_EMPTY] = shadow_irq_rx_fifo_empty;
+          expected_irq[LSB_IRQ_RX_FIFO_FULL]  = shadow_irq_rx_fifo_full;
+          expected_irq[LSB_IRQ_TX_FIFO_EMPTY] = shadow_irq_tx_fifo_empty;
+          expected_irq[LSB_IRQ_TX_FIFO_FULL]  = shadow_irq_tx_fifo_full;
+          expected_irq[LSB_IRQ_MAX_DROP]      = shadow_irq_max_drop;
+          
+          if (tx.rdata !== expected_irq) begin
+            $error("[%s] APB: IRQ read mismatch!", name);
+            $error("        Expected: %h (RX_EMPTY=%b, RX_FULL=%b, TX_EMPTY=%b, TX_FULL=%b, MAX_DROP=%b)",
+                   expected_irq, shadow_irq_rx_fifo_empty, shadow_irq_rx_fifo_full,
+                   shadow_irq_tx_fifo_empty, shadow_irq_tx_fifo_full, shadow_irq_max_drop);
+            $error("        Actual:   %h", tx.rdata);
+          end else begin
+            $display("[%s] APB: IRQ read MATCH - value=%h", name, tx.rdata);
+          end
+        end
+      end
+      
+      default: begin
+        // Access to unmapped address should return error
+        apb_errors_expected++;
+        if (!tx.error) begin
+          $error("[%s] APB: Expected ERROR on unmapped address %h not seen!", name, tx.addr);
+        end else begin
+          $display("[%s] APB: Unmapped address %h correctly generated ERROR.", name, tx.addr);
+        end
+      end
+    endcase
+  end
+endtask
 
+// Check if CTRL write is valid
+protected function bit check_ctrl_write_validity(bit [31:0] wdata);
+  bit [ALGN_SIZE_WIDTH-1:0] new_size;
+  bit [ALGN_OFFSET_WIDTH-1:0] new_offset;
+  
+  new_size = wdata[LSB_CTRL_SIZE +: ALGN_SIZE_WIDTH];
+  new_offset = wdata[LSB_CTRL_OFFSET +: ALGN_OFFSET_WIDTH];
+  
+  // SIZE = 0 is illegal
+  if (new_size == 0) return 1;
+  
+  // Check if (SIZE, OFFSET) combination is legal
+  if ((((ALGN_DATA_WIDTH / 8) + new_offset) % new_size) != 0) return 1;
+  
+  return 0; // Valid write
+endfunction
 
   // Configuracion de los valores del STATUS register 
   protected function bit [31:0] build_expected_status();
@@ -259,7 +344,7 @@ class scoreboard;
     return status;
   endfunction
 
-// REvisar valor de salida de los IRQ's
+// Revisar valor de salida de los IRQ's
   protected function bit compute_expected_irq_pin();
     bit expected_irq = 0;
     
@@ -341,5 +426,6 @@ class scoreboard;
   endfunction
 
 endclass
+
 
 

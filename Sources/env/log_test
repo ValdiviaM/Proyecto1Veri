@@ -1,0 +1,120 @@
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[UNKWN_OPTVSIM] Unknown option passed
+  Ignoring unknown option '-incdir' passed to 'vcs' and continuing 
+  compilation.
+
+
+Warning-[DEBUG_DEP] Option will be deprecated
+  The option '-debug_all' will be deprecated in a future release.  Please use 
+  '-debug_acc+all+dmptf -debug_region+cell+encrypt' instead.
+
+Command: vcs -Mupdate -incdir DUT -incdir tests -incdir packets -incdir components \
+-incdir transactors -incdir interfaces tb.sv -o salida -full64 -debug_all -timescale=1ns/1ns \
+-sverilog -l log_test +lint=TFIPC-L -cm line+tgl+cond+fsm+branch+assert
+                         Chronologic VCS (TM)
+       Version R-2020.12-SP2_Full64 -- Wed Oct 22 22:22:30 2025
+
+                    Copyright (c) 1991 - 2021 Synopsys, Inc.
+   This software and the associated documentation are proprietary to Synopsys,
+ Inc. This software may only be used in accordance with the terms and conditions
+ of a written license agreement with Synopsys, Inc. All other use, reproduction,
+            or distribution of this software is strictly prohibited.
+
+
+Warning-[DEBUG_DEP] Option will be deprecated
+  The option '-debug_all' will be deprecated in a future release.  Please use 
+  '-debug_acc+all -debug_region+cell+encrypt' instead.
+
+Parsing design file 'tb.sv'
+Parsing included file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_synch.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_synch_fifo.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_rx_ctrl.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_ctrl.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_tx_ctrl.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_edge_detect.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_regs.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_aligner_core.v'.
+Back to file 'DUT/design.v'.
+Parsing included file 'DUT/cfs_aligner.v'.
+Back to file 'DUT/design.v'.
+Back to file 'tb.sv'.
+Parsing included file 'interfaces/apb_if.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'interfaces/md_if.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'packets/apb_transaction.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'packets/config_pkt.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'packets/md_packet.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'transactors/apb_driver.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'transactors/md_driver.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'transactors/apb_monitor.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'transactors/md_monitor.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'components/Generator.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'components/Checker.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'components/csv_logger.sv'.
+Back to file 'tb.sv'.
+Parsing included file 'components/Scoreboard.sv'.
+
+Warning-[SV-IIS] Illegal import statement.
+components/Scoreboard.sv, 4
+$unit, "scoreboard"
+  There is an import statement directly within the class scoreboard. 
+  Although this is allowed in this version of VCS, it is illegal according to 
+  the SystemVerilog LRM and can result in unexpected behavior.  It will not be
+  supported in future VCS releases.
+
+
+Error-[SE] Syntax error
+  Following verilog source has syntax error :
+  "components/Scoreboard.sv", 226 (expanding macro): token is '00f4'
+          `ADDR_IRQ: begin
+                   ^
+
+#0, ADDR_IRQ : "packets/apb_transaction.sv":9
+full expansion of macro (ADDR_IRQ), error at line 1
+=>'h00f4
+2 warnings
+1 error
+CPU time: .488 seconds to compile
