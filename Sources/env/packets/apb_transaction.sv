@@ -41,8 +41,18 @@ class apb_transaction;
   // Función para imprimir el contenido de la transacción
   function string display(string name = "apb_transaction");
       string s = $sformatf("[%s] op=%s, addr=%h", name, op.name(), addr);
-      if (op == APB_WRITE) s = {s, $sformatf(", wdata=%h", wdata)};
-      return s;
+    if (op == APB_WRITE) begin
+      s = {s, $sformatf(", wdata=0x%h", wdata)};
+    end else begin
+      s = {s, $sformatf(", rdata=0x%h", rdata)};
+    end
+    
+    if (slverr || error) begin
+      s = {s, " [ERROR]"};
+    end
+
+    return s;
+    
   endfunction
 
 endclass
