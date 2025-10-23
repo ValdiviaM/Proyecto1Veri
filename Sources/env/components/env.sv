@@ -114,9 +114,15 @@ class environment;
     // Si la nueva métrica (outputs) ya cubre la condición, la misma función report_output_processed() dispara el evento.
   endfunction
 
+  function void set_irq_pin(bit value);
+    irq_expected = value;
+    $display("[%s] [IRQ] Actualización desde Scoreboard -> irq_expected=%0b", name, value);
+  endfunction
+
   task report_phase();
     m_scoreboard.report();
   endtask
 
 endclass
+
 

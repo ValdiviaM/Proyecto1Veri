@@ -36,5 +36,5 @@ package dut_params_pkg;
   parameter int unsigned LSB_IRQ_TX_FIFO_EMPTY = 2;
   parameter int unsigned LSB_IRQ_TX_FIFO_FULL  = 3;
   parameter int unsigned LSB_IRQ_MAX_DROP      = 4;
-  
+  parameter int unsigned FIFO_DEPTH      = 16;
 endpackage

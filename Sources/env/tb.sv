@@ -101,7 +101,8 @@
 
   //--- Ejecución del Test ---//
   initial begin
-    test my_test = new();
+  test my_test;
+  my_test = new();
     
     // Pasa los handles de las interfaces al test para que las distribuya
     my_test.run(md_rx_if, md_tx_if, apb_if);
