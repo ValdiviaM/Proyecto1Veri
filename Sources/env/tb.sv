@@ -2,13 +2,9 @@
 `include "interfaces/apb_if.sv"
 `include "interfaces/md_if.sv"
 
-`include "packets/test_sync.sv"
-`include "packets/pkt1.sv"
-`include "packets/pkt_base.sv"
-`include "packets/apb_pkt.sv"
-`include "packets/md_pkt.sv"
-`include "packets/pkt4.sv"
-`include "packets/pkt6.sv"
+`include "packets/apb_transaction.sv"
+`include "packets/config_pkt.sv"
+`include "packets/md_packet.sv"
 
 `include "transactors/apb_driver.sv"
 `include "transactors/md_driver.sv"
@@ -16,69 +12,108 @@
 `include "transactors/md_monitor.sv"
 
 `include "components/Generator.sv"
-`include "components/Scoreboard.sv"
 `include "components/Checker.sv"
+`include "components/csv_logger.sv"
+`include "components/Scoreboard.sv"
 `include "components/env.sv"
 
-`include "tests/base_test.sv"
-`include "tests/random_md_test.sv"
+`include "tests/test.sv"
 
-  module testbench;
-    bit clk;
-    wire irq;
+ module top_tb;
+  //--- Parámetros del Testbench (configuran el DUT y las interfaces) ---//
+  parameter ALGN_DATA_WIDTH = 32;
+  parameter FIFO_DEPTH      = 8;
+  parameter APB_ADDR_WIDTH    = 16;
+  
+  //--- Reloj y Reset ---//
+  logic clk;
+  logic reset_n;
 
-    apb_if apb_bus();
-    md_if  md_bus();
+  //--- Instanciación de Interfaces ---//
+  // Se crea una interfaz por cada puerto del DUT, conectando clk y reset
+  apb_interface #(
+    .APB_ADDR_WIDTH(APB_ADDR_WIDTH),
+    .APB_DATA_WIDTH(ALGN_DATA_WIDTH)
+  ) apb_if ();
+  assign apb_if.clk     = clk;
+  assign apb_if.reset_n = reset_n;
+ 
+  md_interface #(.ALGN_DATA_WIDTH(ALGN_DATA_WIDTH)) md_rx_if();
+  assign md_rx_if.clk     = clk;
+  assign md_rx_if.reset_n = reset_n;
 
-    // --- FIX: All declarations must come before logic/instantiations ---
-    random_md_test test;
+  md_interface #(.ALGN_DATA_WIDTH(ALGN_DATA_WIDTH)) md_tx_if();
+  assign md_tx_if.clk     = clk;
+  assign md_tx_if.reset_n = reset_n;
 
-    // The DUT instance uses the 'cfs_aligner' from your design.sv file
-    cfs_aligner dut (
-      .clk(clk),
-      .reset_n(apb_bus.reset_n),
-      .paddr(apb_bus.paddr),
-      .pwrite(apb_bus.pwrite),
-      .psel(apb_bus.psel),
-      .penable(apb_bus.penable),
-      .pwdata(apb_bus.pwdata),
-      .pready(apb_bus.pready),
-      .prdata(apb_bus.prdata),
-      .pslverr(apb_bus.pslverr),
-      .md_rx_valid(md_bus.md_rx_valid),
-      .md_rx_data(md_bus.md_rx_data),
-      .md_rx_offset(md_bus.md_rx_offset),
-      .md_rx_size(md_bus.md_rx_size),
-      .md_rx_ready(md_bus.md_rx_ready),
-      .md_rx_err(md_bus.md_rx_err),
-      .md_tx_valid(md_bus.md_tx_valid),
-      .md_tx_data(md_bus.md_tx_data),
-      .md_tx_offset(md_bus.md_tx_offset),
-      .md_tx_size(md_bus.md_tx_size),
-      .md_tx_ready(md_bus.md_tx_ready),
-      .md_tx_err(md_bus.md_tx_err),
-      .irq(irq)
-    );
+  assign md_tx_if.ready = 1'b1;
+  assign md_tx_if.err   = 1'b0;
 
-    assign apb_bus.pclk = clk;
-    assign md_bus.clk = clk;
-    assign md_bus.reset_n = apb_bus.reset_n;
-
-    initial begin
-      clk = 0;
-      forever #5ns clk = ~clk;
-    end
-
-    initial begin
-      $display("==== [TB] Starting Testbench ====");
-      test = new(apb_bus.Transactor, // For the APB Driver
-                  apb_bus.Monitor,    // For the APB Monitor
-                  md_bus.Transactor,  // For the MD Driver
-                  md_bus.Monitor);    // For the MD Monitor
-      test.run();
+  //--- Instanciación del DUT (Device Under Test) ---//
+  cfs_aligner #(
+    .ALGN_DATA_WIDTH(ALGN_DATA_WIDTH),
+    .FIFO_DEPTH(FIFO_DEPTH)
+  ) dut (
+    .clk(clk),
+    .reset_n(reset_n),
     
-      $display("==== [TB] Test Finished ====");
-      $finish;
-    end
+    // Conexión del bus APB
+    .paddr(apb_if.paddr),
+    .pwrite(apb_if.pwrite),
+    .psel(apb_if.psel),
+    .penable(apb_if.penable),
+    .pwdata(apb_if.pwdata),
+    .pready(apb_if.pready),
+    .prdata(apb_if.prdata),
+    .pslverr(apb_if.pslverr),
+    
+    // Conexión del bus de entrada MD (RX)
+    .md_rx_valid(md_rx_if.valid),
+    .md_rx_data(md_rx_if.data),
+    .md_rx_offset(md_rx_if.offset),
+    .md_rx_size(md_rx_if.size),
+    .md_rx_ready(md_rx_if.ready),
+    .md_rx_err(md_rx_if.err),
+    
+    // Conexión del bus de salida MD (TX)
+    .md_tx_valid(md_tx_if.valid),
+    .md_tx_data(md_tx_if.data),
+    .md_tx_offset(md_tx_if.offset),
+    .md_tx_size(md_tx_if.size),
+    .md_tx_ready(md_tx_if.ready),
+    .md_tx_err(md_tx_if.err),
+    
+    .irq() // irq no se verifica en este entorno, se deja desconectado
+  );
 
-  endmodule
+  //--- Generación de Reloj y Reset ---//
+  initial begin
+    clk = 0;
+    forever #5ns clk = ~clk; // Reloj de 100 MHz
+  end
+
+  initial begin
+    reset_n = 1'b0;
+    $display("[TB] Reset Activo");
+    repeat(5) @(posedge clk);
+    reset_n = 1'b1;
+    $display("[TB] Reset Inactivo. Simulación comienza.");
+  end
+
+  //--- Ejecución del Test ---//
+  initial begin
+  test my_test;
+  my_test = new();
+    
+    // Pasa los handles de las interfaces al test para que las distribuya
+    my_test.run(md_rx_if, md_tx_if, apb_if);
+    #100;
+  end
+
+  // Opcional: Para dumpear las ondas para depuración visual (ej. con DVE o Verdi)
+  initial begin
+    $dumpfile("waves.vcd");
+    $dumpvars(0, top_tb);
+  end
+
+endmodule

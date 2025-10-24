@@ -1,177 +1,338 @@
+typedef class environment;
 
+class scoreboard;
+  import dut_params_pkg::*;
+
+  string name = "Scoreboard";
+
+  //--- Mailboxes ---//
+  mailbox #(md_packet)        rx_mon_mbx;
+  mailbox #(md_packet)        tx_mon_mbx;
+  mailbox #(apb_transaction)  apb_mon_mbx;
+
+  //--- Componentes de utilidad ---//
+  protected checker    m_checker;
+  protected csv_logger m_logger;
+  protected environment m_env;
   
+  //--- Colas internas y Modelo del DUT ---//
+  protected md_packet  m_expected_q[$];
+  protected byte       m_byte_buffer_q[$]; // Búfer de bytes para el modelo de alineación
+
+  //--- Shadow Registers (Modelo del estado del DUT) ---//
+  protected bit [ALGN_SIZE_WIDTH-1:0]   shadow_ctrl_size   = 1;
+  protected bit [ALGN_OFFSET_WIDTH-1:0] shadow_ctrl_offset = 0;
+  protected int unsigned                shadow_cnt_drop    = 0;
+  protected bit                         shadow_cnt_drop_maxed = 0;
+
+  //--- Shadow FIFO Level Tracking ---//
+  protected int unsigned shadow_rx_fifo_level = 0;
+  protected int unsigned shadow_tx_fifo_level = 0;
+
+  //--- Shadow IRQ Status Bits (W1C - Sticky) ---//
+  protected bit shadow_irq_rx_fifo_empty = 0;
+  protected bit shadow_irq_rx_fifo_full  = 0;
+  protected bit shadow_irq_tx_fifo_empty = 0;
+  protected bit shadow_irq_tx_fifo_full  = 0;
+  protected bit shadow_irq_max_drop      = 0;
   
-  class Scoreboard;
-    mailbox #(pkt6) expected_mbx;
-    mailbox #(pkt4) actual_mbx;
-    test_sync sync; 
+  //--- Shadow IRQ Enable Bits (RW) ---//
+  protected bit shadow_irqen_rx_fifo_empty = 0;
+  protected bit shadow_irqen_rx_fifo_full  = 0;
+  protected bit shadow_irqen_tx_fifo_empty = 0;
+  protected bit shadow_irqen_tx_fifo_full  = 0;
+  protected bit shadow_irqen_max_drop      = 0;
+
+  //--- Contadores para el reporte final ---//
+  int unsigned match_count = 0;
+  int unsigned mismatch_count = 0;
+  int unsigned apb_writes_processed = 0;
+  int unsigned apb_reads_processed = 0;
+  int unsigned apb_errors_expected = 0;
+  int unsigned legal_packets_received = 0;
+
+  //--- Constructor ---//
+  function new(mailbox #(md_packet) rx_mon_mbx,
+               mailbox #(md_packet) tx_mon_mbx,
+               mailbox #(apb_transaction) apb_mon_mbx,
+               environment m_env);
+    this.rx_mon_mbx  = rx_mon_mbx;
+    this.tx_mon_mbx  = tx_mon_mbx;
+    this.apb_mon_mbx = apb_mon_mbx;
+    this.m_env = m_env; // handle del environment
     
-    protected pkt4 expected_q[$];
-    protected int passed_transactions = 0;
-    protected int failed_transactions = 0;
+    m_checker = new();
+    m_logger  = new("simulation_log.csv"); 
+  endfunction
+
+  //--- Tarea Principal ---//
+  task run();
+    $display("[%s] El scoreboard ha comenzado.", name);
+    fork
+      process_inputs_and_predict();
+      process_outputs_and_check();
+      process_apb_config();
+    join
+  endtask
+
+  //--- Tareas de Proceso ---//
+  protected task process_inputs_and_predict();
+    forever begin
+      md_packet rx_pkt;
+      bit is_pkt_legal;
+
+      rx_mon_mbx.get(rx_pkt);
       
-    protected bit all_expected_received = 0;
-    protected int total_expected_count = 0;
-    protected int received_actual_count = 0;
-    protected int comparison_count = 0;
-
-    function new(mailbox #(pkt6) expected_mbx, mailbox #(pkt4) actual_mbx, test_sync sync);
-      this.expected_mbx = expected_mbx;
-      this.actual_mbx = actual_mbx;
-      this.sync = sync;
-    endfunction
-
-    task run();
-      fork
-        receive_expected();
-        receive_actual();
-      join_none
-    endtask
-    
-    task receive_expected();
-      pkt6 expected_pkt;
-      forever begin
-        expected_mbx.get(expected_pkt);
-
-        if (expected_pkt.is_last) begin
-          $display("[SCB] Received final expected packet. Total expected words: %0d.", total_expected_count);
-          all_expected_received = 1;
-          check_completion();
-          break;
-        end
-        
-        $display("[SCB] Received expected packet ID %0d with %0d words.", expected_pkt.id, expected_pkt.data.size());
-        
-        foreach(expected_pkt.data[i]) begin
-          pkt4 expected_word = new();
-          expected_word.data   = expected_pkt.data[i];
-          expected_word.size   = expected_pkt.size[i];
-          expected_word.offset = expected_pkt.offset[i];
-          expected_q.push_back(expected_word);
-          total_expected_count++;
-          $display("[SCB] Queued expected word %0d: data=0x%08h, size=%0d, offset=%0d", 
-                   total_expected_count, expected_word.data, expected_word.size, expected_word.offset);
-        end
+      // Replica la lógica del DUT para determinar legalidad
+      if (rx_pkt.size == 0 || ((((ALGN_DATA_WIDTH / 8) + rx_pkt.offset) % rx_pkt.size) != 0)) begin
+        is_pkt_legal = 0;
+      end else begin
+        is_pkt_legal = 1;
       end
-    endtask
 
-    task receive_actual();
-      pkt4 actual_pkt;
-      forever begin        
-        pkt4 expected_word_to_compare;
-        bit is_match;
-        
-        actual_mbx.get(actual_pkt);
-        received_actual_count++;
-
-        $display("[SCB] Received actual transaction #%0d: data=0x%08h, size=%0d, offset=%0d", 
-                 received_actual_count, actual_pkt.data, actual_pkt.size, actual_pkt.offset);
-
-        // Wait briefly if expected queue is empty but we haven't received all expected yet
-        if (expected_q.size() == 0 && !all_expected_received) begin
-          $display("[SCB] Waiting for expected transaction to arrive...");
-          repeat(10) #1ns;
+      if (!is_pkt_legal) begin
+        shadow_cnt_drop++;
+        if (shadow_cnt_drop >= MAX_DROP_COUNT) begin
+          //shadow_cnt_drop_maxed = 1;
+          shadow_irq_max_drop = 1;
         end
+        $display("[%s] Modelo: Paquete ILEGAL descartado (size=%0d, offset=%0d)", name, rx_pkt.size, rx_pkt.offset);
+      end else begin
+        legal_packets_received++;
 
-        if (expected_q.size() == 0) begin
-          $error("[SCB] Received actual transaction #%0d when none was expected. MISMATCH!", received_actual_count);
-          $display("       Actual: data=0x%08h, size=%0d, offset=%0d", 
-                   actual_pkt.data, actual_pkt.size, actual_pkt.offset);
-          failed_transactions++;
-          comparison_count++;
-          check_completion(); 
-          continue;
+        // Update RX FIFO
+        if (shadow_rx_fifo_level < FIFO_DEPTH) begin
+          shadow_rx_fifo_level++;
         end
+        if (shadow_rx_fifo_level == FIFO_DEPTH)
+          shadow_irq_rx_fifo_full = 1;
+        if (shadow_rx_fifo_level == 0)
+          shadow_irq_rx_fifo_empty = 1;
 
-        expected_word_to_compare = expected_q.pop_front();
-        comparison_count++;
-        
-        // Compare size and offset first
-        if (actual_pkt.size != expected_word_to_compare.size || 
-            actual_pkt.offset != expected_word_to_compare.offset) begin
-          is_match = 1'b0;
-        end else begin
-          bit data_match;
-          bit [31:0] actual_aligned, expected_aligned;
-          bit [31:0] cmp_mask;
-          int shift_actual, shift_expected;
+        $display("[%s] Modelo: Paquete LEGAL aceptado. RX FIFO level=%0d", name, shadow_rx_fifo_level);
+        predict_dut_output(rx_pkt);
 
-          case (actual_pkt.size)
-            1: cmp_mask = 32'hFF;
-            2: cmp_mask = 32'hFFFF;
-            4: cmp_mask = 32'hFFFF_FFFF;
-            default: cmp_mask = 32'h0;
-          endcase
+        // Simula consumo del FIFO
+        if (shadow_rx_fifo_level > 0) begin
+          shadow_rx_fifo_level--;
+        end
+        if (shadow_rx_fifo_level == 0)
+          shadow_irq_rx_fifo_empty = 1;
+        else
+          shadow_irq_rx_fifo_empty = 0;
+      end
 
-          shift_actual   = actual_pkt.offset * 8;
-          shift_expected = expected_word_to_compare.offset * 8;
+      // Actualiza IRQ pin esperado
+     // m_env.set_irq_pin(compute_expected_irq_pin());
+    end
+  endtask
 
-          actual_aligned   = (actual_pkt.data >> shift_actual) & cmp_mask;
-          expected_aligned = (expected_word_to_compare.data >> shift_expected) & cmp_mask;
+  protected task process_outputs_and_check();
+    forever begin
+      md_packet actual_pkt, expected_pkt;
+      bit match;
+      
+      tx_mon_mbx.get(actual_pkt);
+      
+      if (m_expected_q.size() == 0) begin
+        $error("[%s] ¡Salida inesperada del DUT! Cola vacía.", name);
+        mismatch_count++;
+        expected_pkt = new();
+        m_logger.log_entry(0, actual_pkt, expected_pkt);
+        m_env.report_output_processed();
+        continue;
+      end
+      
+      expected_pkt = m_expected_q.pop_front();
+      match = m_checker.compare(expected_pkt, actual_pkt);
+      
+      if (match) begin
+        match_count++;
+        $display("[%s] *** PACKET MATCH ***", name);
+      end else begin
+        mismatch_count++;
+      end
+      
+      // TX FIFO consume un elemento
+      if (shadow_tx_fifo_level > 0)
+        shadow_tx_fifo_level--;
+      if (shadow_tx_fifo_level == 0)
+        shadow_irq_tx_fifo_empty = 1;
+      else
+        shadow_irq_tx_fifo_empty = 0;
 
-          data_match = (actual_aligned == expected_aligned);
-          is_match = data_match;
-          
-          if (!data_match) begin
-            $display("[SCB] Data mismatch detail:");
-            $display("       actual_aligned=0x%08h, expected_aligned=0x%08h", 
-                     actual_aligned, expected_aligned);
-            $display("       mask=0x%08h, shift_actual=%0d, shift_expected=%0d",
-                     cmp_mask, shift_actual, shift_expected);
+      m_logger.log_entry(match, actual_pkt, expected_pkt);
+      m_env.report_output_processed();
+
+      // Actualiza IRQ pin esperado
+     // m_env.set_irq_pin(compute_expected_irq_pin());
+    end
+  endtask
+  
+  protected task process_apb_config();
+    forever begin
+      apb_transaction tx;
+      bit [31:0] expected_rdata;
+      bit [31:0] expected_irqen;
+      bit [31:0] expected_irq;
+      bit expect_error;
+
+      apb_mon_mbx.get(tx);
+    
+      case (tx.addr)
+        `ADDR_CTRL: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            expect_error = check_ctrl_write_validity(tx.wdata);
+            
+            if (expect_error) begin
+              apb_errors_expected++;
+              if (!tx.error)
+                $error("[%s] APB: Expected ERROR on CTRL write not seen!", name);
+            end else begin
+              shadow_ctrl_size = tx.wdata[LSB_CTRL_SIZE +: ALGN_SIZE_WIDTH];
+              shadow_ctrl_offset = tx.wdata[LSB_CTRL_OFFSET +: ALGN_OFFSET_WIDTH];
+              
+              if (tx.wdata[LSB_CTRL_CLR]) begin
+                shadow_cnt_drop = 0;
+                shadow_cnt_drop_maxed = 0;
+                shadow_irq_max_drop = 0;
+                $display("[%s] APB: CTRL.CLR - drop counter reset", name);
+              end
+            end
           end
         end
         
-        if (is_match) begin
-          $display("[SCB] Transaction #%0d MATCHED!", comparison_count);
-          passed_transactions++;
-        end else begin
-          $error("[SCB] Transaction #%0d MISMATCH!", comparison_count);
-          $display("  Expected: data=0x%08h, size=%0d, offset=%0d", 
-                   expected_word_to_compare.data, expected_word_to_compare.size, expected_word_to_compare.offset);
-          $display("  Actual:   data=0x%08h, size=%0d, offset=%0d", 
-                   actual_pkt.data, actual_pkt.size, actual_pkt.offset);
-          failed_transactions++;
+        `ADDR_STATUS: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            apb_errors_expected++;
+          end else begin
+            apb_reads_processed++;
+            expected_rdata = build_expected_status();
+            if (tx.rdata !== expected_rdata)
+              $warning("[%s] STATUS mismatch! Exp=%h Got=%h", name, expected_rdata, tx.rdata);
+          end
+        end
+ /*       
+        `ADDR_IRQEN: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            shadow_irqen_rx_fifo_empty = tx.wdata[LSB_IRQEN_RX_FIFO_EMPTY];
+            shadow_irqen_rx_fifo_full  = tx.wdata[LSB_IRQEN_RX_FIFO_FULL];
+            shadow_irqen_tx_fifo_empty = tx.wdata[LSB_IRQEN_TX_FIFO_EMPTY];
+            shadow_irqen_tx_fifo_full  = tx.wdata[LSB_IRQEN_TX_FIFO_FULL];
+            shadow_irqen_max_drop      = tx.wdata[LSB_IRQEN_MAX_DROP];
+            $display("[%s] APB: IRQEN updated", name);
+          end else begin
+            apb_reads_processed++;
+          end
+          m_env.set_irq_pin(compute_expected_irq_pin()); // <--- IRQ puede cambiar
         end
         
-        check_completion();
-      end
-    endtask
-    
-    task check_completion();
-      if (all_expected_received && (comparison_count >= total_expected_count)) begin
-        $display("[SCB] Test completion conditions met:");
-        $display("      - All expected received: %0d", all_expected_received);
-        $display("      - Comparisons made: %0d / %0d expected", comparison_count, total_expected_count);
-        $display("      - Expected queue size: %0d", expected_q.size());
-        $display("      - Passed: %0d, Failed: %0d", passed_transactions, failed_transactions);
-        ->sync.test_done;
-      end
-    endtask
-    
-    function void report();
-      $display("========================================");
-      $display("      Scoreboard Final Report");
-      $display("========================================");
-      $display("  Total Expected Words:     %0d", total_expected_count);
-      $display("  Actual Received:          %0d", received_actual_count);
-      $display("  Comparisons Made:         %0d", comparison_count);
-      $display("  Passed Transactions:      %0d", passed_transactions);
-      $display("  Failed Transactions:      %0d", failed_transactions);
-      
-      if (expected_q.size() > 0) begin
-        $error("[SCB] %0d expected transactions were never matched!", expected_q.size());
-        $display("     Unmatched expected transactions:");
-        foreach(expected_q[i]) begin
-          $display("       [%0d] data=0x%08h, size=%0d, offset=%0d", 
-                   i, expected_q[i].data, expected_q[i].size, expected_q[i].offset);
+        `ADDR_IRQ: begin
+          if (tx.op == APB_WRITE) begin
+            apb_writes_processed++;
+            if (tx.wdata[LSB_IRQ_RX_FIFO_EMPTY]) shadow_irq_rx_fifo_empty = 0;
+            if (tx.wdata[LSB_IRQ_RX_FIFO_FULL])  shadow_irq_rx_fifo_full  = 0;
+            if (tx.wdata[LSB_IRQ_TX_FIFO_EMPTY]) shadow_irq_tx_fifo_empty = 0;
+            if (tx.wdata[LSB_IRQ_TX_FIFO_FULL])  shadow_irq_tx_fifo_full  = 0;
+            if (tx.wdata[LSB_IRQ_MAX_DROP])      shadow_irq_max_drop      = 0;
+          end else begin
+            apb_reads_processed++;
+          end
+          m_env.set_irq_pin(compute_expected_irq_pin()); // <--- IRQ puede cambiar
         end
-      end
+*/
+        
+        default: begin
+          apb_errors_expected++;
+        end
+      endcase
+    end
+  endtask
+
+  // Check CTRL write legality
+  protected function bit check_ctrl_write_validity(bit [31:0] wdata);
+    bit [ALGN_SIZE_WIDTH-1:0] new_size;
+    bit [ALGN_OFFSET_WIDTH-1:0] new_offset;
+    new_size = wdata[LSB_CTRL_SIZE +: ALGN_SIZE_WIDTH];
+    new_offset = wdata[LSB_CTRL_OFFSET +: ALGN_OFFSET_WIDTH];
+    if (new_size == 0) return 1;
+    if ((((ALGN_DATA_WIDTH / 8) + new_offset) % new_size) != 0) return 1;
+    return 0;
+  endfunction
+
+  protected function bit [31:0] build_expected_status();
+    bit [31:0] status = 0;
+    status[LSB_STATUS_CNT_DROP +: STATUS_CNT_DROP_WIDTH] = shadow_cnt_drop[STATUS_CNT_DROP_WIDTH-1:0];
+    status[LSB_STATUS_RX_LVL +: STATUS_RX_LVL_WIDTH] = shadow_rx_fifo_level[STATUS_RX_LVL_WIDTH-1:0];
+    status[LSB_STATUS_TX_LVL +: STATUS_TX_LVL_WIDTH] = shadow_tx_fifo_level[STATUS_TX_LVL_WIDTH-1:0];
+    return status;
+  endfunction
+
+  // Calcular estado global del pin IRQ
+  protected function bit compute_expected_irq_pin();
+    bit expected_irq = 0;
+    expected_irq |= (shadow_irq_rx_fifo_empty & shadow_irqen_rx_fifo_empty);
+    expected_irq |= (shadow_irq_rx_fifo_full  & shadow_irqen_rx_fifo_full);
+    expected_irq |= (shadow_irq_tx_fifo_empty & shadow_irqen_tx_fifo_empty);
+    expected_irq |= (shadow_irq_tx_fifo_full  & shadow_irqen_tx_fifo_full);
+    expected_irq |= (shadow_irq_max_drop      & shadow_irqen_max_drop);
+    return expected_irq;
+  endfunction
+
+  //--- Modelo de referencia ---//
+  protected virtual function void predict_dut_output(md_packet input_pkt);
+    byte current_byte;
+    int byte_index;
+
+    for (int i = 0; i < input_pkt.size; i++) begin
+      byte_index = input_pkt.offset + i;
+      current_byte = input_pkt.data[(byte_index*8) +: 8];
+      m_byte_buffer_q.push_back(current_byte);
+    end
+    
+    while (m_byte_buffer_q.size() >= shadow_ctrl_size) begin
+      md_packet predicted_pkt = new();
+      bit [ALGN_DATA_WIDTH-1:0] output_data = 0;
+      byte byte_to_place;
+      int byte_index_in_output;
       
-      if (failed_transactions == 0 && comparison_count == total_expected_count) begin
-        $display("\n  *** TEST PASSED ***");
-      end else begin
-        $display("\n  *** TEST FAILED ***");
+      predicted_pkt.size   = shadow_ctrl_size;
+      predicted_pkt.offset = shadow_ctrl_offset;
+
+      for (int i = 0; i < shadow_ctrl_size; i++) begin
+        byte_to_place = m_byte_buffer_q.pop_front();
+        byte_index_in_output = shadow_ctrl_offset + i;
+        output_data[(byte_index_in_output*8) +: 8] = byte_to_place;
       end
-      $display("========================================");
-    endfunction
-  endclass
+      predicted_pkt.data = output_data;
+      m_expected_q.push_back(predicted_pkt);
+
+      if (shadow_tx_fifo_level < FIFO_DEPTH)
+        shadow_tx_fifo_level++;
+      if (shadow_tx_fifo_level == FIFO_DEPTH)
+        shadow_irq_tx_fifo_full = 1;
+      else
+        shadow_irq_tx_fifo_full = 0;
+
+      $display("[%s] Modelo: Paquete predicho y encolado. TX FIFO=%0d", name, shadow_tx_fifo_level);
+     // m_env.set_irq_pin(compute_expected_irq_pin()); // IRQ puede cambiar por TX lleno
+    end
+  endfunction
+  
+  //--- Reporte Final ---//
+  function void report();
+    m_logger.close();
+    $display("-------------------------------------------------");
+    $display("[%s] Reporte Final", name);
+    $display("  MATCH: %0d", match_count);
+    $display("  MISMATCH: %0d", mismatch_count);
+    if (m_expected_q.size() > 0)
+      $warning("[%s] %0d paquetes esperados nunca emitidos.", name, m_expected_q.size());
+    $display("-------------------------------------------------");
+  endfunction
+
+endclass
+
