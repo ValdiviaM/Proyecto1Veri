@@ -48,6 +48,7 @@
 
   assign md_tx_if.ready = 1'b1;
   assign md_tx_if.err   = 1'b0;
+
   //--- Instanciación del DUT (Device Under Test) ---//
   cfs_aligner #(
     .ALGN_DATA_WIDTH(ALGN_DATA_WIDTH),

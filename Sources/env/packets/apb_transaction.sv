@@ -24,7 +24,7 @@ class apb_transaction;
   //--------------- Variables de Resultado ---------------//
   bit [APB_DATA_WIDTH-1:0]       rdata;  // Datos leídos (solo para lecturas)
   bit                           slverr; // Estado de error del esclavo
-
+  bit 				error;
   //--------------- Restricciones de Aleatorización ---------------//
 
   // Restringe las operaciones a las direcciones válidas del DUT

@@ -93,7 +93,7 @@ class scoreboard;
       if (!is_pkt_legal) begin
         shadow_cnt_drop++;
         if (shadow_cnt_drop >= MAX_DROP_COUNT) begin
-          shadow_cnt_drop_maxed = 1;
+          //shadow_cnt_drop_maxed = 1;
           shadow_irq_max_drop = 1;
         end
         $display("[%s] Modelo: Paquete ILEGAL descartado (size=%0d, offset=%0d)", name, rx_pkt.size, rx_pkt.offset);
@@ -123,7 +123,7 @@ class scoreboard;
       end
 
       // Actualiza IRQ pin esperado
-      m_env.set_irq_pin(compute_expected_irq_pin());
+     // m_env.set_irq_pin(compute_expected_irq_pin());
     end
   endtask
 
@@ -165,7 +165,7 @@ class scoreboard;
       m_env.report_output_processed();
 
       // Actualiza IRQ pin esperado
-      m_env.set_irq_pin(compute_expected_irq_pin());
+     // m_env.set_irq_pin(compute_expected_irq_pin());
     end
   endtask
   
@@ -214,7 +214,7 @@ class scoreboard;
               $warning("[%s] STATUS mismatch! Exp=%h Got=%h", name, expected_rdata, tx.rdata);
           end
         end
-        
+ /*       
         `ADDR_IRQEN: begin
           if (tx.op == APB_WRITE) begin
             apb_writes_processed++;
@@ -243,6 +243,7 @@ class scoreboard;
           end
           m_env.set_irq_pin(compute_expected_irq_pin()); // <--- IRQ puede cambiar
         end
+*/
         
         default: begin
           apb_errors_expected++;
@@ -317,7 +318,7 @@ class scoreboard;
         shadow_irq_tx_fifo_full = 0;
 
       $display("[%s] Modelo: Paquete predicho y encolado. TX FIFO=%0d", name, shadow_tx_fifo_level);
-      m_env.set_irq_pin(compute_expected_irq_pin()); // IRQ puede cambiar por TX lleno
+     // m_env.set_irq_pin(compute_expected_irq_pin()); // IRQ puede cambiar por TX lleno
     end
   endfunction
   

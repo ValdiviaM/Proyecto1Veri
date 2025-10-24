@@ -27,53 +27,65 @@ class apb_driver;
 
   protected task drive_write(apb_transaction tx);
     // --- FASE DE SETUP ---
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    @(vif.drv_cb);
     vif.drv_cb.psel   <= 1'b1;
     vif.drv_cb.pwrite <= 1'b1;
     vif.drv_cb.paddr  <= tx.addr;
     vif.drv_cb.pwdata <= tx.wdata;
 
     // --- FASE DE ACCESS ---
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    @(vif.drv_cb);
     vif.drv_cb.penable <= 1'b1;
     
-    while (!vif.drv_cb.pready) begin // <-- CORREGIDO de tb_cb a drv_cb
-      @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    while (!vif.drv_cb.pready) begin
+      @(vif.drv_cb);
     end
-    
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+
+    // Capturamos el posible error
+    tx.error  = vif.drv_cb.pslverr;
+    @(vif.drv_cb);
     reset_signals();
-    $display("[%s] Escritura en 0x%h completada.", name, tx.addr);
+
+    if (tx.error)
+      $display("[%s] Escritura en 0x%h completada con ERROR (pslverr=1)", name, tx.addr);
+    else
+      $display("[%s] Escritura en 0x%h completada correctamente.", name, tx.addr);
   endtask
 
   protected task drive_read(apb_transaction tx);
     // --- FASE DE SETUP ---
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    @(vif.drv_cb);
     vif.drv_cb.psel   <= 1'b1;
     vif.drv_cb.pwrite <= 1'b0;
     vif.drv_cb.paddr  <= tx.addr;
     
     // --- FASE DE ACCESS ---
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    @(vif.drv_cb);
     vif.drv_cb.penable <= 1'b1;
 
-    while (!vif.drv_cb.pready) begin // <-- CORREGIDO de tb_cb a drv_cb
-      @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    while (!vif.drv_cb.pready) begin
+      @(vif.drv_cb);
     end
     
-    tx.rdata   = vif.drv_cb.prdata; // <-- CORREGIDO de tb_cb a drv_cb
-    tx.slverr  = vif.drv_cb.pslverr; // <-- CORREGIDO de tb_cb a drv_cb
+    tx.rdata   = vif.drv_cb.prdata;
+    tx.slverr  = vif.drv_cb.pslverr;
+    tx.error   = vif.drv_cb.pslverr; // sincronizado con slverr
     
-    @(vif.drv_cb); // <-- CORREGIDO de tb_cb a drv_cb
+    @(vif.drv_cb);
     reset_signals();
-    $display("[%s] Lectura de 0x%h completada. Datos: 0x%h", name, tx.addr, tx.rdata);
+
+    if (tx.error)
+      $display("[%s] Lectura en 0x%h completada con ERROR: prdata=0x%h", name, tx.addr, tx.rdata);
+    else
+      $display("[%s] Lectura en 0x%h completada. Datos: 0x%h", name, tx.addr, tx.rdata);
   endtask
   
   protected task reset_signals();
-      vif.drv_cb.psel    <= 1'b0; // <-- CORREGIDO de tb_cb a drv_cb
-      vif.drv_cb.penable <= 1'b0; // <-- CORREGIDO de tb_cb a drv_cb
-      vif.drv_cb.paddr   <= 'x;   // <-- CORREGIDO de tb_cb a drv_cb
-      vif.drv_cb.pwdata  <= 'x;   // <-- CORREGIDO de tb_cb a drv_cb
+    vif.drv_cb.psel    <= 1'b0;
+    vif.drv_cb.penable <= 1'b0;
+    vif.drv_cb.paddr   <= 'x;
+    vif.drv_cb.pwdata  <= 'x;
   endtask
 
 endclass
+
